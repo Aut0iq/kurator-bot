@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Резервная копия базы: сохраняет в backups/ (14 последних) и присылает главным кураторам в Telegram.
-# Вручную:  sudo -u kurator bash /opt/kurator/deploy/backup.sh
 set -euo pipefail
 APP="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 QUIET="${1:-}"

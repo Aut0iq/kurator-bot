@@ -11,11 +11,12 @@ import re
 import secrets
 import time
 
-SYN_BASE = -8_000_000_000_000     # «аккаунт» студента без Telegram: SYN_BASE - id студента (вне диапазона Telegram)
-PARENT_BASE = -8_500_000_000_000  # вход родителя: PARENT_BASE - id студента (только просмотр данных ребёнка)
-CODE_TTL = 24 * 3600              # код действует сутки
-CODE_TRIES = 5                    # попыток ввода кода
-MAX_FAILS, LOCK_SEC = 5, 600      # 5 неверных паролей → пауза 10 минут
+SYN_BASE = -8_000_000_000_000
+PARENT_BASE = -8_500_000_000_000
+STAFF_BASE = -7_000_000_000_000
+CODE_TTL = 24 * 3600
+CODE_TRIES = 5
+MAX_FAILS, LOCK_SEC = 5, 600
 
 _fails: dict[str, list[float]] = {}
 _LOOKALIKE = str.maketrans("ABCEHKMOPTXY", "АВСЕНКМОРТХУ")
@@ -50,7 +51,7 @@ def parent_student(tg_id) -> int:
 def norm_record(no: str) -> str:
     """«а-309 », «А 309» и «А-309» — один и тот же номер."""
     s = re.sub(r"[\s\-–—_./]", "", str(no or "")).upper()
-    return s.translate(_LOOKALIKE)          # латинская «A» и русская «А» — одна буква
+    return s.translate(_LOOKALIKE)
 
 
 def hash_secret(secret: str) -> str:

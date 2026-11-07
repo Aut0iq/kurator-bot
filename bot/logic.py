@@ -16,7 +16,6 @@ DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
 
-# ---------- подпись initData (https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app)
 def check_init_data(init_data: str, bot_token: str, max_age: int = 86400) -> dict | None:
     try:
         pairs = dict(parse_qsl(init_data, keep_blank_values=True, strict_parsing=True))
@@ -43,7 +42,6 @@ def display_name(user: dict) -> str:
     return name or user.get("username") or str(user.get("id"))
 
 
-# ---------- даты
 def now_in(tz: str) -> datetime:
     return datetime.now(ZoneInfo(tz))
 
@@ -65,7 +63,7 @@ def week_number(group: dict, d: date) -> int | None:
     if not group.get("semester_start"):
         return None
     start = date.fromisoformat(group["semester_start"])
-    start -= timedelta(days=start.weekday())  # к понедельнику
+    start -= timedelta(days=start.weekday())
     return (d - start).days // 7 + 1
 
 
@@ -87,7 +85,7 @@ def in_semester(group: dict, d: date) -> bool:
 
 
 def lesson_on(lesson: dict, group: dict, d: date) -> bool:
-    if lesson.get("date"):                      # разовая пара
+    if lesson.get("date"):
         return lesson["date"] == d.isoformat()
     if lesson["weekday"] != d.weekday() or not in_semester(group, d):
         return False
@@ -95,7 +93,7 @@ def lesson_on(lesson: dict, group: dict, d: date) -> bool:
         return True
     wn = week_number(group, d)
     if wn is None:
-        return True  # чётность не определить — показываем
+        return True
     return (wn % 2 == 1) == (lesson["parity"] == 1)
 
 
@@ -191,7 +189,6 @@ def esc(s: str | None) -> str:
     return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-# ---------- статистика
 def build_stats(students: list[dict], records: list[dict]) -> list[dict]:
     """Посещаемость по студентам. Опоздание = присутствие, уважительная не снижает процент,
     «не ответил на опрос» = пропуск."""

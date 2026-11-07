@@ -1,5 +1,5 @@
 "use strict";
-/* ================= Задания, журнал действий, сотрудники, копии, итоги семестра, значки, оформление, уведомления ================= */
+
 
 const tileIc = (ic, c, size = 34) => h("div", { class: "tile " + c, style: `width:${size}px;height:${size}px;border-radius:${Math.round(size / 3)}px;display:grid;place-items:center;flex:none` }, icon(ic, "sm"));
 const WD_G = ["понедельника", "вторника", "среды", "четверга", "пятницы", "субботы", "воскресенья"];
@@ -14,7 +14,7 @@ function dueText(ds) {
 }
 const dueCls = ds => { const n = daysLeft(ds); return n < 0 ? "A" : n <= 1 ? "L" : "kind"; };
 
-/* ===================================================== домашние задания */
+
 async function renderHomework() {
   const past = !!S.hwPast;
   const r = await api("/homework" + (past ? "?past=1" : ""));
@@ -114,7 +114,7 @@ async function openHomeworkEditor(x = {}) {
     h("p", { class: "muted tiny center" }, "Накануне срока вечером студенты, которые ещё не отметили задание, получат напоминание."));
   setTimeout(() => (x.subject ? title : subj).focus(), 300);
 }
-/* карточка на главной: что сдать на неделе */
+
 function homeworkHomeCard(r) {
   if (!r) return null;
   const todo = r.items.filter(x => !x.done && x.bucket !== "later");
@@ -129,7 +129,7 @@ function homeworkHomeCard(r) {
       h("div", { class: "grow ellipsis small" }, h("b", {}, x.subject), " · ", x.title), h("span", { class: "muted tiny" }, dueText(x.due_date).replace("сдать ", ""))))) : null);
 }
 
-/* ===================================================== серии и значки */
+
 const BADGE_SEEN = "badges_seen";
 function streakCard(a) {
   if (!a?.student) return null;
@@ -167,7 +167,7 @@ async function renderBadges() {
     rest.length ? [h("div", { class: "section rise" }, "Впереди"), h("div", { class: "badge-grid" }, rest.map(card))] : null,
     h("p", { class: "muted tiny center rise", style: "margin-top:14px" }, "Значки видите только вы. Уважительная причина (справка) серию не прерывает."));
 }
-/* новый значок — поздравляем один раз */
+
 async function checkNewBadges(force = false, data = null) {
   if (!S.me?.student || S.demoToken) return;
   let a = data;
@@ -175,7 +175,7 @@ async function checkNewBadges(force = false, data = null) {
   if (!a?.student) return;
   const seen = store.get(BADGE_SEEN, null), earned = a.badges.filter(b => b.earned);
   store.set(BADGE_SEEN, earned.map(b => b.key));
-  if (seen == null && !force) return;                    // первый запуск на устройстве — не засыпаем поздравлениями
+  if (seen == null && !force) return;
   const fresh = earned.filter(b => !(seen || []).includes(b.key));
   if (!fresh.length) return;
   const b = fresh[fresh.length - 1];
@@ -188,7 +188,7 @@ async function checkNewBadges(force = false, data = null) {
     h("div", { class: "btns" }, h("button", { class: "btn", onclick: () => { closeSheet(); go(S.tab, "badges"); } }, "Все значки"), h("button", { class: "btn plain", onclick: () => closeSheet() }, "Ура!")));
 }
 
-/* ===================================================== итоги семестра («Wrapped») */
+
 const TONES = { violet: ["#7c3aed", "#4f46e5", "#2563eb"], green: ["#059669", "#10b981", "#0ea5e9"], blue: ["#2563eb", "#0ea5e9", "#22d3ee"],
   orange: ["#ea580c", "#f59e0b", "#ef4444"], pink: ["#db2777", "#a855f7", "#6366f1"] };
 async function openWrapped() {
@@ -284,7 +284,7 @@ function wrappedCard() {
       icon("right", "sm")));
 }
 
-/* ===================================================== журнал действий */
+
 const AUDIT_KINDS = { "": "Все", marks: "Отметки", grades: "Оценки", student: "Студенты", delete: "Удаления", schedule: "Расписание", change: "Переносы",
   homework: "Задания", role: "Роли", perms: "Права", announce: "Объявления", code: "Коды входа", settings: "Настройки", lock: "Доступ", backup: "Копии" };
 const AUDIT_IC = { marks: ["journal", "c2"], grades: ["award", "c2"], student: ["user", "c5"], delete: ["trash", "c4"], schedule: ["calendar", "c5"], change: ["refresh", "c3"],
@@ -318,7 +318,7 @@ async function renderAudit(more = false) {
   if (more) { const y = scrollY; mount(null, parts); scrollTo(0, y); } else mount(S.anim, parts);
 }
 
-/* ===================================================== вход по логину: сотрудник сам + главный куратор */
+
 function staffLoginSheet() {
   const sl = S.me.staff_login || {};
   const login = h("input", { placeholder: "Например, ivanova или ivanova@mail.ru", autocomplete: "username", value: sl.login || "", autocapitalize: "none", spellcheck: false });
@@ -371,7 +371,7 @@ function staffCodeSheet(x) {
     }) }, icon("key", "sm"), x.has_password ? "Сбросить пароль — выдать код" : "Выдать код для первого входа")));
 }
 
-/* ===================================================== мониторинг: статистика использования и резервные копии */
+
 function usageBlock(u) {
   if (!u) return null;
   const max = Math.max(1, ...u.days.map(d => d.n));
@@ -429,7 +429,7 @@ function restoreSheet(b) {
     h("label", { class: "f" }, "Чтобы подтвердить, введите слово ВОССТАНОВИТЬ"), word, h("div", { class: "btns" }, go));
 }
 
-/* ===================================================== оформление */
+
 function openAppearance() {
   const body = h("div");
   const paint = () => {
@@ -450,9 +450,9 @@ function openAppearance() {
   openSheet(h("h3", {}, "Оформление"), h("p", { class: "muted small", style: "margin:4px 0 12px" }, "Сохраняется на этом устройстве."), body);
 }
 
-/* ===================================================== уведомления в Android-приложении */
+
 const pushSupported = () => { try { return !!NATIVE?.pushSupported?.(); } catch (_) { return false; } };
-/* приложение закрылось с ошибкой — отправляем её в «Мониторинг» главному куратору */
+
 function reportNativeCrash() {
   let t = "";
   try { t = NATIVE?.lastCrash?.() || ""; } catch (_) {}
@@ -467,7 +467,7 @@ function pushRow() {
   const sw = h("input", { type: "checkbox", checked: !!S.me.push, onchange: e => safe(() => api("/me/push", { body: { on: e.target.checked } }))
     .then(() => {
       S.me.push = e.target.checked; selTick();
-      // Android уже спрашивал разрешение и его не дали — открываем настройки уведомлений приложения
+
       if (S.me.push && store.get("notif_asked") && NATIVE.pushPermission && !NATIVE.pushPermission()) { NATIVE.openNotificationSettings?.(); toast("Разрешите уведомления для «Куратор +»", "bell"); }
       else toast(S.me.push ? "Уведомления в телефоне включены" : "Уведомления в телефоне выключены", "bell");
       syncNativePush();
@@ -480,7 +480,7 @@ function pushRow() {
     h("span", { class: "switch" }, sw, h("i")));
 }
 
-/* ===================================================== стартовая страница (вне Telegram) */
+
 const SOCIAL_NAMES = { telegram: ["Telegram", "#229ED9"], vk: ["ВКонтакте", "#0077FF"], youtube: ["YouTube", "#FF0033"], rutube: ["RuTube", "#100943"],
   tiktok: ["TikTok", "#111111"], dzen: ["Дзен", "#000000"], site: ["Сайт", "var(--accent)"] };
 function startTelegramLogin(btn) {
@@ -522,7 +522,7 @@ function loginSheet(kind) {
       h("div", {}, h("h3", { style: "margin:0" }, staff ? "Староста или куратор" : "Студент"),
         h("div", { class: "muted small" }, staff ? "Ведите журнал, опросы и отчёты" : "Опросы, расписание, пропуски и оценки"))),
     h("div", { class: "list", style: "margin-top:16px" },
-      h("div", { class: "item tap", onclick: e => { closeSheet(); startTelegramLogin(); } }, h("span", { class: "tg-logo sm" }),
+      S.tg === false ? null : h("div", { class: "item tap", onclick: e => { closeSheet(); startTelegramLogin(); } }, h("span", { class: "tg-logo sm" }),
         h("div", { class: "grow" }, h("b", {}, "Через Telegram"), h("div", { class: "muted tiny" }, "Без пароля: бот спросит, вы ли это")), icon("right", "sm chev")),
       h("div", { class: "item tap", onclick: () => { closeSheet(); renderPwLogin(); } }, tileIc("key", "c3", 34),
         h("div", { class: "grow" }, h("b", {}, staff ? "По логину и паролю" : "По номеру студенческого"),
@@ -533,7 +533,7 @@ function createGroupSheet() {
   openSheet(h("div", { class: "center", style: "padding:6px 0 2px" }, h("div", { class: "land-create-ic pop" }, icon("plus", "lg")),
       h("h3", { style: "margin:12px 0 4px" }, "Своя группа за минуту"),
       h("p", { class: "muted small", style: "margin:0" }, "Войдите — и сразу откроется создание группы. Потом добавите расписание и пригласите студентов ссылкой.")),
-    h("div", { class: "btns" }, h("button", { class: "btn block tg-btn", onclick: () => { closeSheet(); startTelegramLogin(); } }, h("span", { class: "tg-logo" }), "Войти через Telegram")),
+    S.tg === false ? null : h("div", { class: "btns" }, h("button", { class: "btn block tg-btn", onclick: () => { closeSheet(); startTelegramLogin(); } }, h("span", { class: "tg-logo" }), "Войти через Telegram")),
     h("div", { class: "btns", style: "margin-top:8px" }, h("button", { class: "btn ghost block", onclick: () => { closeSheet(); renderPwLogin(); } }, icon("key", "sm"), "У меня есть логин и пароль")),
     h("p", { class: "muted tiny center" }, "Бесплатно и без рекламы."));
 }
@@ -560,10 +560,10 @@ async function renderLanding() {
     NATIVE?.resetServer ? h("div", { class: "center" }, h("button", { class: "back", style: "color:var(--hint)", onclick: () => NATIVE.resetServer() }, "Сменить адрес сервера")) : null,
     copyrightFooter());
   page();
-  try { info = await api("/app-info"); if (!S.me && document.querySelector(".land-roles")) { S.anim = null; $app.classList.add("srv-quiet"); page(); setTimeout(() => $app.classList.remove("srv-quiet"), 600); } } catch (_) {}
+  try { info = await api("/app-info"); S.tg = info.telegram; if (!S.me && document.querySelector(".land-roles")) { S.anim = null; $app.classList.add("srv-quiet"); page(); setTimeout(() => $app.classList.remove("srv-quiet"), 600); } } catch (_) {}
 }
 
-/* ===================================================== родитель */
+
 function renderParentLogin(mode = "login", recordNo = "") {
   const first = mode === "set";
   const rec = h("input", { class: "rec-input", placeholder: "Например, А-309", value: recordNo, autocapitalize: "characters", spellcheck: false });
@@ -595,7 +595,7 @@ async function renderParent() {
   document.getElementById("tabs").classList.add("hidden");
   skeleton(90, 160, 200, 140);
   const r = await api("/parent");
-  S.me.today = r.today;                               // для подписей сроков заданий
+  S.me.today = r.today;
   const st = r.month, color = p => p == null ? "var(--hint)" : p >= 85 ? "var(--P)" : p >= 70 ? "var(--L)" : "var(--A)";
   const first = r.student.split(" ")[1] || r.student;
   const hw = r.homework.filter(x => !x.done && daysLeft(x.due_date) >= 0);
@@ -645,5 +645,5 @@ function issueParentCode(s, recordInput) {
   }));
 }
 
-/* запуск — после того как загружены все скрипты (app.js, views.js, features.js) */
+
 boot();

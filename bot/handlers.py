@@ -44,7 +44,6 @@ HELP = (
 def setup_router(db: DB, webapp_url: str, bot_username: str) -> Router:
     r = Router()
 
-    # ---------- закрытый доступ: пока главный куратор не откроет, бот отвечает только ему
     async def lock_guard(handler, event, data):
         from perms import SUPER_IDS
         lock = db.lock()
@@ -84,8 +83,6 @@ def setup_router(db: DB, webapp_url: str, bot_username: str) -> Router:
             text += "\n\nИли найдите себя в списке, который уже внёс староста:"
         await msg.answer(text, reply_markup=kb)
 
-    # ---------- /start
-    # ---------- согласие на обработку персональных данных
     def legal_links() -> str:
         if not webapp_url.startswith("http"):
             return "согласие на обработку персональных данных, политика и пользовательское соглашение"
@@ -165,7 +162,7 @@ def setup_router(db: DB, webapp_url: str, bot_username: str) -> Router:
                                             "(приложение → Ещё → Участники) или удалите группу, затем повторите /forget.")
                 return await cb.answer()
             if not others:
-                db.delete_group(m["group_id"])        # в группе больше никого — удаляем её целиком
+                db.delete_group(m["group_id"])
         db.forget(uid)
         await safe_edit(cb.message, "✅ Согласие отозвано, ваши данные удалены. Чтобы снова пользоваться ботом, вступите в группу по приглашению.")
         await cb.answer("Готово")
@@ -175,7 +172,7 @@ def setup_router(db: DB, webapp_url: str, bot_username: str) -> Router:
         await do_start(msg, msg.from_user, (command.args or "").strip())
 
     async def do_start(msg: Message, user, arg: str):
-        if arg == "forget":                       # из приложения: «Ещё → Отозвать согласие»
+        if arg == "forget":
             return await forget_cmd(msg)
         if (arg.startswith("join_") or arg.startswith("staff_")) and db.consent_of(user.id) != legal.VERSION \
                 and not db.member(user.id):
@@ -309,9 +306,8 @@ def setup_router(db: DB, webapp_url: str, bot_username: str) -> Router:
         try:
             await message.edit_text(text, **kw)
         except TelegramBadRequest:
-            pass  # «message is not modified» — повторное нажатие той же кнопки
+            pass
 
-    # ---------- опрос перед парой
     @r.callback_query(F.data.startswith("poll:"))
     async def poll_cb(cb: CallbackQuery):
         _, lid, d, k = cb.data.split(":")
@@ -359,7 +355,6 @@ def setup_router(db: DB, webapp_url: str, bot_username: str) -> Router:
                                        reply_markup=polls.poll_kb(int(lid), d, "A"))
         await cb.answer()
 
-    # ---------- расписание
     def group_of(msg: Message):
         m = db.member(msg.from_user.id)
         return (m, db.group(m["group_id"])) if m else (None, None)
@@ -427,7 +422,6 @@ def setup_router(db: DB, webapp_url: str, bot_username: str) -> Router:
         await safe_edit(cb.message, text, reply_markup=kb)
         await cb.answer()
 
-    # ---------- оценки
     @r.message(Command("grades"))
     async def grades_cmd(msg: Message):
         import grades as G
@@ -460,7 +454,6 @@ def setup_router(db: DB, webapp_url: str, bot_username: str) -> Router:
                          + (f"\nПропущено часов: {row['missed_total']}" + (f" (без уваж. {row['missed_bad']})" if row['missed_bad'] else "") if row['missed_total'] is not None else ""),
                          reply_markup=app_kb("Подробнее", "#grades"))
 
-    # ---------- самоотметка по коду
     async def handle_code(msg: Message, code: str):
         m = db.member(msg.from_user.id)
         if not m:
@@ -474,7 +467,6 @@ def setup_router(db: DB, webapp_url: str, bot_username: str) -> Router:
             return await msg.answer("Напишите код, например: /here 1234")
         await handle_code(msg, command.args.strip())
 
-    # ---------- статистика / отчёты
     @r.message(Command("homework", "hw"))
     async def homework_cmd(msg: Message):
         m, g = group_of(msg)
@@ -579,7 +571,6 @@ def setup_router(db: DB, webapp_url: str, bot_username: str) -> Router:
         db.set_reminders(m["tg_id"], arg == "on")
         await msg.answer("🔔 Напоминания включены" if arg == "on" else "🔕 Напоминания выключены")
 
-    # ---------- база знаний: выбор предмета для файла без контекста
     @r.callback_query(F.data.startswith("kb:"))
     async def kb_cb(cb: CallbackQuery):
         p = get_pending(cb.from_user.id, "kbfile")
@@ -593,13 +584,13 @@ def setup_router(db: DB, webapp_url: str, bot_username: str) -> Router:
             return await cb.answer()
         subjects = db.subjects(m["group_id"]) or ["Общее"]
         subject = subjects[int(idx)] if idx.isdigit() and int(idx) < len(subjects) else "Общее"
+        path = await services.download_to(cb.bot, p["file_id"], db.files_dir)
         db.add_file(m["group_id"], subject, p["title"], p["file_id"], p["file_type"], p.get("size"),
-                    m["tg_id"], m["full_name"] or cb.from_user.full_name)
+                    m["tg_id"], m["full_name"] or cb.from_user.full_name, path=path)
         clear_pending(cb.from_user.id)
         await cb.message.edit_text(f"📚 Сохранено в «{esc(subject)}»: {esc(p['title'])}", reply_markup=app_kb("Открыть базу знаний", "#files"))
         await cb.answer("Сохранено")
 
-    # ---------- файлы и фото
     @r.message(F.document | F.photo)
     async def got_file(msg: Message, bot: Bot):
         m = db.member(msg.from_user.id)
@@ -613,16 +604,15 @@ def setup_router(db: DB, webapp_url: str, bot_username: str) -> Router:
             file_id, ftype, size = ph.file_id, "photo", ph.file_size
             title = (msg.caption or "Фото").strip()
 
-        # 1) справка к уважительной причине
         p = get_pending(msg.from_user.id, "reason")
         if p:
             st = db.student_by_tg(msg.from_user.id)
             if st:
-                db.set_reason(p["lesson_id"], p["date"], st["id"], msg.caption, file_id)
+                path = await services.download_to(bot, file_id, db.files_dir)
+                db.set_reason(p["lesson_id"], p["date"], st["id"], msg.caption, file_id, file_path=path)
             clear_pending(msg.from_user.id)
             return await msg.answer("📄 Справка прикреплена — староста её увидит. Выздоравливайте!")
 
-        # 2) импорт расписания
         p = get_pending(msg.from_user.id, "import")
         if p and msg.document and (msg.document.file_name or "").lower().endswith((".xlsx", ".xlsm")) \
                 and can(m, "schedule"):
@@ -630,7 +620,7 @@ def setup_router(db: DB, webapp_url: str, bot_username: str) -> Router:
             await bot.download(msg.document, destination=buf)
             try:
                 lessons, errors = parse_schedule(buf.getvalue())
-            except Exception:  # noqa: BLE001
+            except Exception:
                 return await msg.answer("Не получилось прочитать файл. Проверьте, что это .xlsx по шаблону (/import).")
             if not lessons:
                 return await msg.answer("В файле не нашлось ни одной пары 🤔\n" + "\n".join(errors[:10]))
@@ -645,7 +635,6 @@ def setup_router(db: DB, webapp_url: str, bot_username: str) -> Router:
                 text += "\n\nПропущены строки:\n" + "\n".join(esc(e) for e in errors[:10])
             return await msg.answer(text, reply_markup=app_kb("Посмотреть расписание", "#schedule"))
 
-        # 3) ведомость успеваемости (по запросу из приложения или если файл на неё похож)
         is_xlsx = msg.document and (msg.document.file_name or "").lower().endswith((".xlsx", ".xlsm"))
         if is_xlsx and can(m, "grades") and (get_pending(msg.from_user.id, "grades") or not get_pending(msg.from_user.id, "upload")):
             import grades as G
@@ -653,7 +642,7 @@ def setup_router(db: DB, webapp_url: str, bot_username: str) -> Router:
             await bot.download(msg.document, destination=buf)
             try:
                 sheets = G.parse_workbook(buf.getvalue())
-            except Exception:  # noqa: BLE001
+            except Exception:
                 sheets = []
             if sheets:
                 clear_pending(msg.from_user.id)
@@ -674,15 +663,14 @@ def setup_router(db: DB, webapp_url: str, bot_username: str) -> Router:
                 return await msg.answer("Не похоже на ведомость 🤔 Нужен столбец «Фамилия, имя и отчество», "
                                         "под ним — строка с дисциплинами, и в шапке месяц («за Сентябрь …»).")
 
-        # 4) загрузка в базу знаний из приложения
         p = get_pending(msg.from_user.id, "upload")
         if p:
+            path = await services.download_to(bot, file_id, db.files_dir)
             db.add_file(m["group_id"], p["subject"], title, file_id, ftype, size, m["tg_id"],
-                        m["full_name"] or msg.from_user.full_name)
-            set_pending(msg.from_user.id, "upload", subject=p["subject"])  # продлеваем — можно слать ещё
+                        m["full_name"] or msg.from_user.full_name, path=path)
+            set_pending(msg.from_user.id, "upload", subject=p["subject"])
             return await msg.answer(f"📚 Сохранено в «{esc(p['subject'])}»: {esc(title)}\nМожно прислать ещё.")
 
-        # 5) просто файл — предложим сохранить
         set_pending(msg.from_user.id, "kbfile", file_id=file_id, file_type=ftype, size=size, title=title)
         subjects = db.subjects(m["group_id"]) or ["Общее"]
         rows = [[InlineKeyboardButton(text=s[:40], callback_data=f"kb:{i}")] for i, s in enumerate(subjects[:30])]
@@ -690,7 +678,6 @@ def setup_router(db: DB, webapp_url: str, bot_username: str) -> Router:
         await msg.answer("📚 Сохранить в базу знаний группы? Выберите предмет:",
                          reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
 
-    # ---------- текстовые ответы в диалогах
     @r.message(F.text & ~F.text.startswith("/"))
     async def text_msg(msg: Message):
         m = db.member(msg.from_user.id)

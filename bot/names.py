@@ -62,7 +62,7 @@ def pretty(name: str) -> str:
     words = " ".join(name.split()).split(" ")
     out = []
     for w in words:
-        if "." in w and len(w) <= 5:              # инициалы: «А.С.», «Н.С»
+        if "." in w and len(w) <= 5:
             out.append(w.upper())
         else:
             out.append("-".join(x[:1].upper() + x[1:].lower() for x in w.split("-")))

@@ -40,13 +40,7 @@ import java.net.URL;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * «Куратор +» для Android — оболочка над веб-приложением бота.
- *
- * Всё содержимое (журнал, оценки, расписание…) приходит с вашего сервера, поэтому
- * приложение не нужно пересобирать при обновлении бота. Вход — через подтверждение в Telegram.
- * Адрес сервера вшивается при сборке (-PserverUrl=…) или вводится при первом запуске.
- */
+
 public class MainActivity extends Activity {
 
     private static final String PREFS = "kurator";
@@ -55,8 +49,8 @@ public class MainActivity extends Activity {
     private WebView web;
     private SharedPreferences prefs;
     private String server = "";
-    private String primary = "";      // основной адрес (свой домен)
-    private String alt = "";          // запасной адрес (бот на компьютере через ngrok)
+    private String primary = "";
+    private String alt = "";
     private boolean triedAlt;
     private ValueCallback<Uri[]> fileCallback;
     private boolean darkPage;
@@ -69,7 +63,7 @@ public class MainActivity extends Activity {
         darkPage = isSystemDark();
         paintBars();
 
-        // отладка WebView — только в отладочной сборке
+
         if ((getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) WebView.setWebContentsDebuggingEnabled(true);
         web = new WebView(this);
         web.setBackgroundColor(darkPage ? Color.parseColor("#0B0C10") : Color.parseColor("#F2F3F7"));
@@ -84,8 +78,8 @@ public class MainActivity extends Activity {
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setSupportZoom(false);
         s.setBuiltInZoomControls(false);
-        // Свой User-Agent (без «Mozilla»): ngrok и подобные туннели не показывают приложению страницу-предупреждение
-        // сервер по коду версии понимает, старое приложение или новое (старым показывает «Обновите приложение»)
+
+
         s.setUserAgentString("KuratorApp/" + versionName() + " (code " + versionCode() + "; Android " + Build.VERSION.RELEASE + ")");
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
 
@@ -97,7 +91,7 @@ public class MainActivity extends Activity {
         String built = normalize(getString(R.string.server_url));
         server = normalize(prefs.getString("server", built));
         if (!built.isEmpty() && !built.equals(prefs.getString("built", ""))) {
-            // новая сборка с другим адресом — переключаемся на него автоматически
+
             server = built;
             prefs.edit().putString("server", built).putString("built", built).apply();
         }
@@ -110,10 +104,10 @@ public class MainActivity extends Activity {
         } else {
             loadApp(getIntent());
         }
-        if (Push.enabled(this)) Push.schedule(this);   // внутри — защищено от ошибок
+        if (Push.enabled(this)) Push.schedule(this);
     }
 
-    /** Нажали на уведомление, когда приложение уже открыто, — переходим в нужный раздел. */
+
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
@@ -133,8 +127,8 @@ public class MainActivity extends Activity {
         } else loadApp();
     }
 
-    // ---------- загрузка
-    /** Основной адрес не ответил — один раз пробуем запасной. */
+
+
     private boolean tryAlt() {
         if (triedAlt || alt.isEmpty() || alt.equals(server)) return false;
         triedAlt = true;
@@ -204,7 +198,7 @@ public class MainActivity extends Activity {
         String host = uri.getHost();
         if (host == null || !host.equalsIgnoreCase(base.getHost())) return false;
         String path = uri.getPath();
-        return path == null || !path.endsWith(".apk");      // файл приложения скачиваем браузером
+        return path == null || !path.endsWith(".apk");
     }
 
     void openExternal(String url) {
@@ -215,7 +209,7 @@ public class MainActivity extends Activity {
             startActivity(i);
         } catch (ActivityNotFoundException e) {
             if (url.startsWith("tg://resolve?domain=")) {
-                // Telegram не установлен — откроем t.me в браузере
+
                 String rest = url.substring("tg://resolve?domain=".length()).replace("&start=", "?start=");
                 openExternal("https://t.me/" + rest);
             } else {
@@ -224,7 +218,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    // ---------- обновление приложения
+
     private long versionCode() {
         try {
             android.content.pm.PackageInfo pi = getPackageManager().getPackageInfo(getPackageName(), 0);
@@ -234,7 +228,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    // ---------- оформление
+
     private boolean isSystemDark() {
         int mode = getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
         return mode == Configuration.UI_MODE_NIGHT_YES;
@@ -266,7 +260,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    // ---------- жизненный цикл
+
     @Override
     @SuppressWarnings("deprecation")
     public void onBackPressed() {
@@ -306,7 +300,7 @@ public class MainActivity extends Activity {
         if (dark != darkPage) {
             darkPage = dark;
             paintBars();
-            if (web != null) web.reload();                    // страница перерисуется в новой теме
+            if (web != null) web.reload();
         }
     }
 
@@ -328,13 +322,13 @@ public class MainActivity extends Activity {
         super.onDestroy();
     }
 
-    // ---------- WebView
+
     private class Client extends WebViewClient {
         @Override
         public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
             Uri uri = request.getUrl();
             if (isInternal(uri)) return false;
-            if ("file".equals(uri.getScheme())) return false;   // страница «нет связи»
+            if ("file".equals(uri.getScheme())) return false;
             openExternal(uri.toString());
             return true;
         }
@@ -348,7 +342,7 @@ public class MainActivity extends Activity {
 
         @Override
         public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse response) {
-            // бот выключен / туннель ngrok не запущен — вместо чужой страницы ошибки показываем свою
+
             if (request.isForMainFrame() && response.getStatusCode() >= 400 && !tryAlt()) {
                 view.loadUrl("file:///android_asset/offline.html");
             }
@@ -370,7 +364,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** Методы, которые вызывает веб-приложение: window.KuratorApp.* (см. webapp/app.js). */
+
     private class Bridge {
         @JavascriptInterface
         public String getToken() {
@@ -381,7 +375,7 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void setToken(String token) {
             prefs.edit().putString("token", token == null ? "" : token).remove("feed_since").apply();
-            if (token == null || token.isEmpty()) Push.stop(MainActivity.this);     // вышли из аккаунта — уведомления не нужны
+            if (token == null || token.isEmpty()) Push.stop(MainActivity.this);
         }
 
         @JavascriptInterface
@@ -425,13 +419,13 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void reload() {
             runOnUiThread(() -> {
-                server = primary;            // «Повторить» — снова с основного адреса
+                server = primary;
                 triedAlt = false;
                 loadApp();
             });
         }
 
-        // ---------- уведомления (без Google-сервисов, см. Push.java)
+
         @JavascriptInterface
         public boolean pushSupported() {
             return true;
@@ -442,7 +436,7 @@ public class MainActivity extends Activity {
             return Push.canNotify(MainActivity.this);
         }
 
-        /** Включить/выключить уведомления; при включении на Android 13+ один раз спросим разрешение. */
+
         @JavascriptInterface
         public void setPush(boolean on) {
             runOnUiThread(() -> {
@@ -454,18 +448,18 @@ public class MainActivity extends Activity {
                         requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 7);
                     }
                 } catch (Throwable t) {
-                    CrashLog.save(MainActivity.this, t);       // уведомления не должны ронять приложение
+                    CrashLog.save(MainActivity.this, t);
                 }
             });
         }
 
-        /** Последняя ошибка приложения (веб-приложение отправит её в «Мониторинг»), после чтения стирается. */
+
         @JavascriptInterface
         public String lastCrash() {
             return CrashLog.take(MainActivity.this);
         }
 
-        /** Пользователь сам включил уведомления переключателем — если Android их запретил, открываем настройки. */
+
         @JavascriptInterface
         public void openNotificationSettings() {
             runOnUiThread(() -> {
@@ -475,7 +469,7 @@ public class MainActivity extends Activity {
             });
         }
 
-        /** «Поделиться» картинкой (итоги семестра): PNG в base64 + текст. */
+
         @JavascriptInterface
         public void shareImage(String base64, String text) {
             runOnUiThread(() -> {

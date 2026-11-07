@@ -16,7 +16,7 @@ elif (ROOT / ".env.example").exists():
 @dataclass(frozen=True)
 class Config:
     bot_token: str
-    webapp_url: str          # публичный HTTPS-адрес, где открыт Mini App (например https://xxx.ngrok-free.app)
+    webapp_url: str
     host: str
     port: int
     db_path: str
@@ -26,7 +26,8 @@ class Config:
 def load_config() -> Config:
     token = os.getenv("BOT_TOKEN", "").strip()
     if not token or ":" not in token or "AAAA..." in token:
-        raise SystemExit(f"Не задан BOT_TOKEN. Впишите токен от @BotFather в файл {ROOT / '.env'}")
+        logging.warning("BOT_TOKEN не задан — работаем без Telegram-бота (только приложение и сайт).")
+        token = ""
     return Config(
         bot_token=token,
         webapp_url=os.getenv("WEBAPP_URL", "").strip().rstrip("/"),

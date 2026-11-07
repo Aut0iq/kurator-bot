@@ -19,7 +19,6 @@ TEACHER_RE = re.compile(r"\s*([А-ЯЁA-Z][а-яёa-z\-]+\s+[А-ЯЁA-Z]\.\s*[А
 NUMERIC = {"5", "4", "3", "2", "1", "0"}
 
 
-# ---------- разбор
 def _s(v) -> str:
     return " ".join(str(v).split()) if v is not None else ""
 
@@ -61,7 +60,7 @@ def _month_from(sheet) -> str | None:
     if mi is None:
         return None
     if len(years) >= 2:
-        year = years[0] if mi >= 7 else years[1]       # сентябрь–декабрь — первый год, январь–август — второй
+        year = years[0] if mi >= 7 else years[1]
     elif years:
         year = years[0]
     else:
@@ -89,12 +88,10 @@ def parse_sheet(ws) -> dict | None:
         if v and _s(v):
             subjects.append(split_subject(v))
             cols.append(j)
-    # одинаковые названия (подгруппы) — различаем по преподавателю
     names = [s["name"] for s in subjects]
     for s in subjects:
         if names.count(s["name"]) > 1 and s["teacher"]:
             s["name"] = f"{s['name']} ({s['teacher']})"
-    # студенты: строки после шапки, где в колонке ФИО есть буквы
     students = []
     for r in rows[head_i + 2:]:
         name = _s(r[col_name] if col_name < len(r) else None)
@@ -124,11 +121,10 @@ def parse_workbook(data: bytes) -> list[dict]:
 def looks_like_grades(data: bytes) -> bool:
     try:
         return bool(parse_workbook(data))
-    except Exception:  # noqa: BLE001
+    except Exception:
         return False
 
 
-# ---------- сопоставление ФИО
 def name_key(name: str) -> tuple[str, str]:
     """«АНТОНЮК А.С.» / «Антонюк Алексей Сергеевич» → ('антонюк', 'ас')."""
     parts = [p for p in re.split(r"[\s.]+", name.replace("ё", "е").replace("Ё", "Е")) if p]
@@ -148,7 +144,7 @@ def match_students(rows: list[dict], students: list[dict]) -> dict[int, int | No
         cand = [s for s in free if rec and (s.get("record_no") or "").strip().lower() == rec]
         if not cand:
             cand = names.candidates(r["name"], free)
-            if len(cand) > 1:                      # несколько однофамильцев — предпочтём привязанного к Telegram
+            if len(cand) > 1:
                 linked = [s for s in cand if s.get("tg_id")]
                 cand = linked if len(linked) == 1 else cand[:1]
         out[i] = cand[0]["id"] if cand else None
@@ -166,7 +162,6 @@ def pretty_name(raw: str) -> str:
     return (sur + (" " + parts[1] if len(parts) > 1 else "")).strip()
 
 
-# ---------- показатели
 def numeric(g: str | None) -> int | None:
     return int(g) if g in NUMERIC else None
 
@@ -181,8 +176,8 @@ def subject_stats(values: list) -> dict:
     nums = [numeric(v) for v in values if numeric(v) is not None]
     n = len(nums)
     return {"avg": round(sum(nums) / n, 2) if n else None,
-            "quality": round(100 * sum(1 for x in nums if x >= 4) / n, 1) if n else None,     # качество знаний
-            "progress": round(100 * sum(1 for x in nums if x >= 3) / n, 1) if n else None,    # % успеваемости
+            "quality": round(100 * sum(1 for x in nums if x >= 4) / n, 1) if n else None,
+            "progress": round(100 * sum(1 for x in nums if x >= 3) / n, 1) if n else None,
             "fails": sum(1 for x in nums if x <= 2), "count": n}
 
 
@@ -197,7 +192,6 @@ def academic_years(month: str) -> str:
     return f"{first} – {first + 1}"
 
 
-# ---------- выгрузка в том же виде
 THIN = Side(style="thin", color="000000")
 B = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
@@ -209,8 +203,8 @@ def build_sheet(group: dict, month: str, subjects: list[dict], rows: list[dict],
     ws = wb.active
     ws.title = month_title(month)
     n = len(subjects)
-    c_first = 4                                   # D
-    c_miss = c_first + n                           # пропущено всего
+    c_first = 4
+    c_miss = c_first + n
     c_bad, c_avg, c_note = c_miss + 1, c_miss + 2, c_miss + 3
     last = get_column_letter(c_note)
     L = get_column_letter
@@ -315,7 +309,6 @@ def build_sheet(group: dict, month: str, subjects: list[dict], rows: list[dict],
     return buf.getvalue()
 
 
-# ---------- работа с базой
 def import_parsed(db, gid: int, parsed: dict, by: int | None, month: str | None = None) -> dict:
     """Сохраняет разобранную ведомость. Ненайденных студентов добавляет в группу."""
     month = month or parsed["month"]
@@ -362,7 +355,7 @@ def month_view(db, gid: int, month: str) -> dict | None:
     subj = []
     for j, s in enumerate(gm["subjects"]):
         name = s["name"]
-        if s.get("teacher") and name.endswith(f" ({s['teacher']})"):   # подгруппы: преподаватель и так виден ниже
+        if s.get("teacher") and name.endswith(f" ({s['teacher']})"):
             name = name[: -len(s["teacher"]) - 3]
         subj.append({**s, "name": name, **subject_stats([r["grades"][j] for r in out])})
     avgs = [r["avg"] for r in out if r["avg"] is not None]

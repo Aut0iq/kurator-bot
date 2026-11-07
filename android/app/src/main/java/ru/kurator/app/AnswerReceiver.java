@@ -8,7 +8,7 @@ import android.content.Intent;
 
 import org.json.JSONObject;
 
-/** Кнопка в уведомлении опроса: отправляет ответ на сервер (POST /api/poll), не открывая приложение. */
+
 public class AnswerReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context c, Intent in) {

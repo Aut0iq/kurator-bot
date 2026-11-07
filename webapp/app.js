@@ -1,14 +1,14 @@
 "use strict";
-/* ================= Ядро: утилиты, иконки, шторки, роутер ================= */
+
 const tg = window.Telegram?.WebApp;
 try { tg?.ready(); tg?.expand(); tg?.setHeaderColor?.("secondary_bg_color"); tg?.disableVerticalSwipes?.(); } catch (_) {}
 
-/* ---------- где запущено: Telegram Mini App, приложение Android (WebView) или обычный браузер ---------- */
+
 const IN_TG = !!(tg && tg.initData);
-const NATIVE = window.KuratorApp || null;            // мост из Android-приложения (android/…/MainActivity.java)
+const NATIVE = window.KuratorApp || null;
 if (!IN_TG) document.documentElement.classList.add("standalone");
 
-/* ---------- оформление: тема (системная / светлая / тёмная) и цвет акцента ---------- */
+
 const ACCENTS = {
   violet: { name: "Фиолетовый", a: ["#8b5cf6", "#6366f1", "#3b82f6"], c: "#6d5efc" },
   blue:   { name: "Синий",      a: ["#38bdf8", "#3b82f6", "#2563eb"], c: "#2f6cf6" },
@@ -26,11 +26,11 @@ function themePrefs() {
 }
 function applyTheme(p = themePrefs()) {
   const root = document.documentElement;
-  // системная тема: в Telegram — как в Telegram, в приложении и браузере — как в телефоне
+
   const sysDark = IN_TG ? tg.colorScheme === "dark" : !!mqDark?.matches;
   const dark = p.mode === "dark" || (p.mode === "system" && sysDark);
   root.classList.toggle("dark", dark);
-  if (IN_TG && p.mode === "system") root.removeAttribute("data-theme");      // берём цвета из темы Telegram
+  if (IN_TG && p.mode === "system") root.removeAttribute("data-theme");
   else root.dataset.theme = dark ? "dark" : "light";
   const ac = ACCENTS[p.accent];
   if (p.accent === "violet") ["--a1", "--a2", "--a3", "--accent", "--link"].forEach(k => root.style.removeProperty(k));
@@ -68,7 +68,7 @@ function openLink(url) {
   if (NATIVE?.openExternal) return NATIVE.openExternal(url);
   window.open(url, "_blank") || (location.href = url);
 }
-/* после «пришлите файл боту»: в Telegram — закрыть Mini App, в приложении — открыть чат с ботом */
+
 function goToBotChat() {
   if (IN_TG) { try { tg.close(); } catch (_) {} return; }
   if (S.me?.bot) openLink((NATIVE ? "tg://resolve?domain=" : "https://t.me/") + S.me.bot);
@@ -88,7 +88,7 @@ const KIND_SHORT = { "Лекция": "Лек", "Практика": "Пр", "Се
 const S = { me: null, tab: "home", sub: null, statsDays: 30, journalMonth: null, journalDate: null };
 const $app = document.getElementById("app");
 
-/* ---------- иконки (простые линейные, 24×24) ---------- */
+
 const ICON_PATHS = {
   home: "M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z",
   calendar: "M8 2v4M16 2v4M3 9h18M5 4h14a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z",
@@ -139,7 +139,7 @@ function icon(name, cls = "") {
   return svg;
 }
 
-/* ---------- DOM ---------- */
+
 function h(tag, attrs, ...kids) {
   const el = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs || {})) {
@@ -168,7 +168,7 @@ function mount(anim, ...kids) {
   let i = 0;
   for (const el of $app.querySelectorAll(".rise")) if (!el.style.getPropertyValue("--d")) el.style.setProperty("--d", Math.min(i++, 12));
 }
-/* права: см. bot/perms.py */
+
 const can = (...p) => p.some(x => (S.me?.perms || []).includes(x));
 const isStaff = () => can("journal", "attendance");
 const vib = ms => { try { NATIVE?.vibrate?.(ms); } catch (_) {} };
@@ -180,7 +180,7 @@ const store = {
   set(k, v) { try { localStorage.setItem("kb_" + k, JSON.stringify(v)); } catch (_) {} },
 };
 
-/* Ripple на кнопках */
+
 document.addEventListener("pointerdown", e => {
   const b = e.target.closest(".btn, .qa, .answer, .chip");
   if (!b) return;
@@ -191,7 +191,7 @@ document.addEventListener("pointerdown", e => {
   b.append(dot); setTimeout(() => dot.remove(), 600);
 });
 
-/* ---------- тост ---------- */
+
 function toast(msg, ic = null) {
   const t = document.getElementById("toast");
   t.replaceChildren(...(ic ? [icon(ic, "sm")] : []), document.createTextNode(msg));
@@ -199,7 +199,7 @@ function toast(msg, ic = null) {
   clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 2600);
 }
 
-/* ---------- быстрый запуск: последние данные главного экрана хранятся на устройстве ---------- */
+
 const QUICK = /^\/(me|day\?|live|announcements|homework$|achievements)/;
 const quickKey = () => {
   if (S.demoToken) return null;
@@ -216,7 +216,7 @@ const quick = {
   clear() { try { Object.keys(localStorage).filter(x => x.startsWith("kb_q_")).forEach(x => localStorage.removeItem(x)); } catch (_) {} },
 };
 
-/* ---------- API ---------- */
+
 async function api(path, opts = {}) {
   const isGet = !opts.body && (!opts.method || opts.method === "GET");
   if (S.fromCache && !opts.fresh && isGet && QUICK.test(path)) { const c = quick.get(path); if (c) return JSON.parse(JSON.stringify(c)); }
@@ -237,6 +237,44 @@ async function api(path, opts = {}) {
   if (isGet && QUICK.test(path)) quick.set(path, data);
   return data;
 }
+
+function authHeaders() {
+  return S.demoToken ? { Authorization: "Bearer " + S.demoToken }
+    : IN_TG ? { "X-Init-Data": tg.initData } : (AUTH.get() ? { Authorization: "Bearer " + AUTH.get() } : {});
+}
+async function apiUpload(path, fields, file) {
+  const fd = new FormData();
+  Object.entries(fields || {}).forEach(([k, v]) => fd.append(k, v));
+  fd.append("file", file);
+  const res = await fetch("/api" + path, { method: "POST", headers: Object.assign({ "ngrok-skip-browser-warning": "1" }, authHeaders()), body: fd });
+  const data = await res.json().catch(() => ({ error: "Ошибка " + res.status }));
+  if (!res.ok) { const e = new Error(data.error || "Ошибка " + res.status); e.status = res.status; throw e; }
+  return data;
+}
+async function downloadFile(path, fallback = "file") {
+  if (NATIVE?.openExternal) {
+    const tok = S.demoToken || AUTH.get() || "";
+    NATIVE.openExternal(location.origin + "/api" + path + (path.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(tok));
+    return fallback;
+  }
+  const res = await fetch("/api" + path, { headers: Object.assign({ "ngrok-skip-browser-warning": "1" }, authHeaders()) });
+  if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || "Ошибка " + res.status); }
+  const cd = res.headers.get("Content-Disposition") || "";
+  const m = cd.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i);
+  const name = decodeURIComponent(m ? (m[1] || m[2]) : fallback);
+  const url = URL.createObjectURL(await res.blob());
+  const a = h("a", { href: url, download: name }); document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  return name;
+}
+
+function pickFile(accept) {
+  return new Promise(resolve => {
+    const inp = h("input", { type: "file", accept, style: "display:none" });
+    inp.onchange = () => resolve(inp.files[0] || null);
+    document.body.append(inp); inp.click(); setTimeout(() => inp.remove(), 60000);
+  });
+}
 async function safe(fn, btn) {
   let old;
   if (btn) { old = [...btn.childNodes]; btn.disabled = true; btn.replaceChildren(h("span", { class: "spin" })); }
@@ -244,10 +282,10 @@ async function safe(fn, btn) {
   catch (e) { toast(e.message, "alert"); notify("error"); throw e; }
   finally { if (btn) { btn.disabled = false; btn.replaceChildren(...old); } }
 }
-/* обработчик кнопки с индикатором загрузки */
+
 const act = fn => e => { const b = e.currentTarget; safe(() => fn(b), b).catch(() => {}); };
 
-/* ---------- даты ---------- */
+
 const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const parseIso = s => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
 const addDays = (s, n) => { const d = parseIso(s); d.setDate(d.getDate() + n); return iso(d); };
@@ -261,10 +299,10 @@ const initials = name => name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => 
 const groupMark = name => (name.match(/[A-Za-zА-Яа-яЁё0-9]/g) || ["Г"]).slice(0, 2).join("").toUpperCase();
 const hue = s => { let x = 0; for (const c of s) x = (x * 31 + c.charCodeAt(0)) % 360; return x; };
 const ava = name => h("div", { class: "ava", style: `background:linear-gradient(135deg,hsl(${hue(name)} 70% 62%),hsl(${(hue(name) + 40) % 360} 70% 52%))` }, initials(name));
-/* ---------- экран приветствия при каждом запуске ---------- */
+
 const WELCOME = (() => {
   const t0 = performance.now();
-  let el = document.getElementById("welcome");                         // заставка уже в index.html — видна сразу
+  let el = document.getElementById("welcome");
   if (!el) {
     el = document.createElement("div");
     el.id = "welcome";
@@ -278,19 +316,19 @@ const WELCOME = (() => {
     done = true;
     el.querySelector(".wl-hello").textContent = name ? `${greeting()}, ${name}!` : "Добро пожаловать!";
     el.classList.add("hi");
-    // логотип не мелькает, приветствие успевают прочитать; при повторных запусках — короче
+
     const again = store.get("seen_welcome", 0);
     const wait = Math.max(0, (again ? 350 : 900) - (performance.now() - t0)) + (again ? 450 : 700);
     store.set("seen_welcome", 1);
     setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 550); }, wait);
   };
-  setTimeout(() => finish(null), 7000);                                 // на всякий случай — если сервер долго молчит
+  setTimeout(() => finish(null), 7000);
   return { finish };
 })();
 
 const greeting = () => { const hr = new Date().getHours(); return hr < 5 ? "Доброй ночи" : hr < 12 ? "Доброе утро" : hr < 18 ? "Добрый день" : "Добрый вечер"; };
 
-/* Плавный счётчик */
+
 function countUp(el, to, suffix = "", dur = 900, dec = null) {
   const from = 0, t0 = performance.now();
   if (dec == null) dec = String(to).includes(".") ? 1 : 0;
@@ -304,14 +342,14 @@ function countUp(el, to, suffix = "", dur = 900, dec = null) {
   return el;
 }
 
-/* ---------- шторка ---------- */
+
 let sheetStack = [];
 function openSheet(...kids) {
   const body = h("div", { class: "sheet-body" }, h("div", { class: "grabber" }), kids);
   const wrap = h("div", { class: "sheet" }, h("div", { class: "backdrop", onclick: () => closeSheet() }), body);
   document.body.append(wrap);
   sheetStack.push(wrap);
-  // свайп вниз
+
   let y0 = null, dy = 0;
   body.addEventListener("touchstart", e => { if (body.scrollTop <= 0) { y0 = e.touches[0].clientY; dy = 0; body.style.transition = "none"; } }, { passive: true });
   body.addEventListener("touchmove", e => { if (y0 == null) return; dy = Math.max(0, e.touches[0].clientY - y0); body.style.transform = `translateY(${dy}px)`; }, { passive: true });
@@ -333,7 +371,7 @@ function closeSheet() {
 }
 function closeAllSheets() { while (sheetStack.length) closeSheet(); }
 try { tg?.BackButton?.onClick(() => { if (sheetStack.length) closeSheet(); else if (S.sub) go(S.tab); }); } catch (_) {}
-/* системная кнопка «Назад» в Android-приложении: true — обработали сами */
+
 window.__appBack = () => {
   if (sheetStack.length) { closeSheet(); return true; }
   if (S.sub) { go(S.tab); return true; }
@@ -346,7 +384,7 @@ function confirmDo(text, fn) {
   else if (confirm(text)) fn();
 }
 
-/* ---------- конфетти ---------- */
+
 function confetti() {
   const c = document.getElementById("confetti"), ctx = c.getContext("2d");
   c.width = innerWidth * devicePixelRatio; c.height = innerHeight * devicePixelRatio; ctx.scale(devicePixelRatio, devicePixelRatio);
@@ -368,7 +406,7 @@ function confetti() {
   step();
 }
 
-/* ---------- кольцевая диаграмма ---------- */
+
 function ring(parts, total, label, sub) {
   const ns = "http://www.w3.org/2000/svg", R = 44, C = 2 * Math.PI * R;
   const svg = document.createElementNS(ns, "svg");
@@ -392,7 +430,7 @@ function ring(parts, total, label, sub) {
   return h("div", { class: "ring" }, svg, lbl);
 }
 
-/* ---------- спарклайн ---------- */
+
 function sparkline(values) {
   const ns = "http://www.w3.org/2000/svg", W = 300, H = 70, P = 6;
   const svg = document.createElementNS(ns, "svg");
@@ -406,10 +444,10 @@ function sparkline(values) {
   return svg;
 }
 
-/* ---------- скелетон ---------- */
+
 const skeleton = (...hs) => mount("fade", h("div", { style: "height:18px" }), hs.map((x, i) => h("div", { class: "sk", style: `height:${x}px;margin-bottom:12px;opacity:${1 - i * .12}` })));
 
-/* ---------- навигация ---------- */
+
 function tabsFor() {
   return isStaff()
     ? [["home", "home", "Главная"], ["journal", "journal", "Журнал"], ["schedule", "calendar", "Расписание"], ["students", "users", "Студенты"], ["more", "settings", "Ещё"]]
@@ -433,10 +471,10 @@ function moveInd(animate = true) {
   ind.style.transform = `translateX(${on.offsetLeft - 6}px)`;
   if (!animate) requestAnimationFrame(() => (ind.style.transition = ""));
 }
-/* ---------- перелистывание страниц ---------- */
+
 const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const FLIP_EASE = "cubic-bezier(.25, .8, .25, 1)";
-const pageTilt = dx => (-dx / innerWidth) * 16;      // наклон страницы при перелистывании, градусы
+const pageTilt = dx => (-dx / innerWidth) * 16;
 const pageTf = (dx, deg = pageTilt(dx)) => `perspective(1400px) translateX(${dx}px) rotateY(${deg}deg)`;
 let flipGuard = null;
 function pageOut(dir, dx = 0) {
@@ -450,7 +488,7 @@ function pageOut(dir, dx = 0) {
   $app.getAnimations().forEach(a => a.cancel());
   $app.classList.remove("view-slide-l", "view-slide-r", "fade");
   $app.style.transition = ""; $app.style.transform = ""; $app.style.opacity = "";
-  $app.style.visibility = "hidden";                  // покажем, когда новая страница будет готова
+  $app.style.visibility = "hidden";
   const W = innerWidth;
   g.animate([{ transform: pageTf(dx), opacity: 1 }, { transform: pageTf(-dir * W, dir * 28), opacity: .15 }],
     { duration: 380, easing: FLIP_EASE, fill: "forwards" }).onfinish = () => g.remove();
@@ -478,7 +516,7 @@ function go(tab, sub = null, opts = {}) {
   moveInd();
   const dir = ORDER.indexOf(tab) >= ORDER.indexOf(prev) ? "view-slide-l" : "view-slide-r";
   S.anim = sub ? "view-slide-l" : (prev === tab ? (prevSub ? "view-slide-r" : "fade") : dir);
-  // эффект перелистывания: старая страница уходит, новая заезжает с другой стороны
+
   const ids = tabsFor().map(t => t[0]);
   let fdir = 0;
   if (sub && sub !== prevSub) fdir = 1;
@@ -488,10 +526,10 @@ function go(tab, sub = null, opts = {}) {
   try { sub ? tg?.BackButton?.show() : tg?.BackButton?.hide(); } catch (_) {}
   render();
 }
-/* ---------- свайп влево/вправо — соседняя вкладка нижнего меню ---------- */
+
 (function swipeTabs() {
   let x0, y0, t0, axis = null, dx = 0, active = false;
-  // не мешаем прокрутке таблиц/чипов, полям ввода и ползункам
+
   const blocked = el => {
     for (; el && el !== document.body; el = el.parentElement) {
       if (el.matches?.("input, textarea, select, [contenteditable], [data-noswipe], .sheet")) return true;
@@ -512,7 +550,7 @@ function go(tab, sub = null, opts = {}) {
     active = false;
     if (e.touches.length !== 1 || sheetStack.length || document.getElementById("tabs").classList.contains("hidden")) return;
     const t = e.touches[0];
-    if (t.clientX < 18 || t.clientX > innerWidth - 18) return;          // края экрана — системные жесты
+    if (t.clientX < 18 || t.clientX > innerWidth - 18) return;
     if (blocked(e.target)) return;
     x0 = t.clientX; y0 = t.clientY; t0 = Date.now(); axis = null; dx = 0; active = true;
   }, { passive: true });
@@ -523,10 +561,10 @@ function go(tab, sub = null, opts = {}) {
       if (Math.abs(mx) < 10 && Math.abs(my) < 10) return;
       axis = Math.abs(mx) > Math.abs(my) * 1.4 ? "x" : "y";
       if (axis === "y") { active = false; return; }
-      $app.classList.remove("view-slide-l", "view-slide-r", "fade");   // анимация не должна перебивать сдвиг
+      $app.classList.remove("view-slide-l", "view-slide-r", "fade");
     }
     dx = mx;
-    // в подразделе свайп вправо = «Назад»; у крайних вкладок — «резинка»
+
     const target = S.sub ? (dx > 0 ? S.tab : null) : neighbor(dx < 0 ? 1 : -1);
     const k = target ? 1 : .15;
     $app.style.transition = "none";
@@ -565,11 +603,11 @@ function pageTitle(title, ...right) {
 }
 const empty = (ic, title, text, ...extra) => h("div", { class: "empty rise" }, h("div", { class: "big-ic" }, icon(ic)), h("b", {}, title), text, extra);
 
-/* ---------- запуск ---------- */
+
 async function boot(refresh = false) {
   if (!refresh && !introSeen()) { WELCOME.finish(null); document.getElementById("tabs").classList.add("hidden"); return renderIntro(() => boot()); }
   if (!IN_TG && !AUTH.get() && !S.demoToken) { WELCOME.finish(null); document.getElementById("tabs").classList.add("hidden"); return renderLogin(); }
-  // есть сохранённые данные — показываем главный экран сразу, свежие подгрузятся следом
+
   const cachedMe = !refresh && !S.demoToken ? quick.get("/me") : null;
   if (cachedMe?.member && cachedMe.consent && cachedMe.today === iso(new Date())) {
     S.me = cachedMe; S.fromCache = true;
@@ -589,7 +627,7 @@ async function boot(refresh = false) {
   if (S.me.member.role === "student" && !isStaff() && !S.me.student) { document.getElementById("tabs").classList.add("hidden"); return renderRegister(); }
   showMain(refresh);
 }
-/* главный экран (вкладки + текущий раздел); false — данных для него недостаточно */
+
 function showMain(refresh) {
   if (!S.me?.member || (S.me.member.role === "student" && !isStaff() && !S.me.student)) return false;
   const hash = location.hash.replace("#", "");
@@ -610,7 +648,7 @@ function showMain(refresh) {
   }
   return true;
 }
-/* после быстрого запуска из сохранённых данных — тихо обновляем всё с сервера */
+
 async function refreshFromServer() {
   await new Promise(r => setTimeout(r, 30));
   let fresh;
@@ -621,7 +659,7 @@ async function refreshFromServer() {
     JSON.stringify(fresh.perms) === JSON.stringify(S.me.perms) && !!fresh.student === !!S.me.student;
   S.me = fresh;
   if (!sameShape) return boot(true);
-  if (sheetStack.length) { showMainExtras(); return; }               // пользователь уже что-то открыл — не мешаем
+  if (sheetStack.length) { showMainExtras(); return; }
   const y = scrollY;
   $app.classList.add("srv-quiet");
   S.anim = null;
@@ -634,24 +672,24 @@ function showMainExtras() {
   if (NATIVE && !S.updChecked) { S.updChecked = true; setTimeout(() => checkUpdates(true), 2500); }
 }
 
-/* ---------- обновление Android-приложения ---------- */
+
 const appVer = () => (NATIVE?.version?.() || "");
 async function appInfo() { return api("/app-info"); }
 function startUpdate(info, status) {
   const url = location.origin + (info.url || "/app.apk");
-  if (NATIVE?.installUpdate) {                       // новые версии — скачиваем и ставим сами
+  if (NATIVE?.installUpdate) {
     if (status) status.textContent = "Скачиваю…";
     NATIVE.installUpdate(url);
-  } else if (NATIVE?.openExternal) {                 // старые версии — через браузер
+  } else if (NATIVE?.openExternal) {
     NATIVE.openExternal(url);
     if (status) status.textContent = "Файл скачивается в браузере. Откройте его из уведомления или «Загрузок» и нажмите «Установить», затем запустите приложение снова.";
   } else openLink(url);
 }
-/* сообщения от приложения во время обновления */
-/* ---------- страница обновления (обязательного и по желанию) ---------- */
+
+
 const RING_R = 86, RING_C = 2 * Math.PI * RING_R;
-let UPD = null;                                     // состояние открытой страницы обновления
-window.__appUpdate = (state, pct) => {              // вызывает Android-приложение во время скачивания
+let UPD = null;
+window.__appUpdate = (state, pct) => {
   if (!UPD) return;
   UPD.set(state, pct);
 };
@@ -740,7 +778,7 @@ async function checkUpdates(silent = false) {
   if (silent) return toast(`Доступна версия ${info.version_name} — «Ещё → Проверить обновления»`, "download");
   updatePage(info);
 }
-/* старое приложение: до обновления — только этот экран */
+
 async function renderUpdate(text) {
   WELCOME.finish(null);
   let info = {};
@@ -748,11 +786,11 @@ async function renderUpdate(text) {
   updatePage(info, { forced: true, text });
 }
 
-/* ---------- «в сети»: пинг раз в минуту, пока приложение на экране ---------- */
+
 setInterval(() => { if (!document.hidden && S.me?.member) api("/ping").catch(() => {}); }, 60000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden && S.me?.member) api("/ping").catch(() => {}); });
 
-/* ---------- закрытый доступ ---------- */
+
 function renderLocked(text) {
   WELCOME.finish(null);
   closeAllSheets();
@@ -764,7 +802,7 @@ function renderLocked(text) {
     h("p", { class: "muted rise" }, text || "Сервис временно закрыт. Попробуйте позже."),
     h("div", { class: "rise", style: "width:100%" }, h("button", { class: "btn block", onclick: act(async () => { await boot(); }) }, icon("refresh", "sm"), "Проверить снова"))));
 }
-/* у главного куратора — напоминание, что доступ закрыт */
+
 function lockBadge() {
   document.querySelectorAll(".lock-badge").forEach(f => f.remove());
   if (!S.me?.super || !S.me.lock) return;
@@ -795,7 +833,7 @@ async function openLockSheet() {
     on ? h("div", { class: "btns" }, h("button", { class: "btn plain sm", onclick: apply(true) }, "Сохранить текст")) : null);
 }
 
-/* ---------- знакомство: 3 слайда при первом запуске на устройстве ---------- */
+
 const INTRO_KEY = "kp_intro_v1";
 function introSeen() { try { return localStorage.getItem(INTRO_KEY) === "1"; } catch (_) { return true; } }
 function renderIntro(next) {
@@ -830,7 +868,7 @@ function renderIntro(next) {
     if (tick) selTick();
   }
   function finish() { try { localStorage.setItem(INTRO_KEY, "1"); } catch (_) {} haptic("soft"); next(); }
-  // листание пальцем
+
   let x0 = null, dx = 0;
   view.addEventListener("touchstart", e => { x0 = e.touches[0].clientX; dx = 0; track.style.transition = "none"; }, { passive: true });
   view.addEventListener("touchmove", e => {
@@ -844,7 +882,7 @@ function renderIntro(next) {
   show(0, false);
 }
 
-/* ---------- согласие на обработку персональных данных ---------- */
+
 function renderConsent() {
   const doc = name => h("a", { href: "/legal/" + name, onclick: e => { e.preventDefault(); e.stopPropagation(); openLink(location.origin + "/legal/" + name); } });
   const a = (name, text) => { const el = doc(name); el.textContent = text; return el; };
@@ -865,7 +903,7 @@ function renderConsent() {
       h("div", { class: "rise", style: "width:100%;margin-top:16px" }, go)));
 }
 
-/* ---------- вход вне Telegram (Android-приложение или браузер) ---------- */
+
 let loginTimer = null;
 function renderLogin(state = {}) {
   clearInterval(loginTimer);
@@ -906,7 +944,7 @@ function renderLogin(state = {}) {
     }, 2000);
   }
 }
-/* ---------- демо-режим (кнопка только на стартовых экранах) ---------- */
+
 function demoButton() {
   return h("div", { class: "demo-entry rise" },
     h("div", { class: "muted small" }, "Хотите сначала посмотреть, как всё устроено?"),
@@ -937,7 +975,7 @@ function exitDemo() {
   closeAllSheets(); boot();
 }
 
-/* ---------- вход без Telegram: номер студенческого + пароль ---------- */
+
 function renderPwLogin(mode = "login", recordNo = "") {
   clearInterval(loginTimer);
   const first = mode === "set";

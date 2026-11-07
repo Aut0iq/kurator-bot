@@ -31,48 +31,56 @@ async def main() -> None:
     from perms import SUPER_IDS
     if db.apply_super_curators():
         logging.info("Главные кураторы обновлены: %s", ", ".join(map(str, SUPER_IDS)))
-    for g in db.all_groups():            # склеиваем «антонюк алексей» и «АНТОНЮК А.С.» из ведомости
+    for g in db.all_groups():
         for pair in db.auto_merge(g["id"]):
             logging.info("Объединены записи студента: %s", pair)
-    bot = Bot(cfg.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-    me = await bot.get_me()
+    bot, bot_username, dp = None, "", None
+    if cfg.bot_token:
+        bot = Bot(cfg.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+        me = await bot.get_me()
+        bot_username = me.username or ""
 
-    await bot.set_my_commands([BotCommand(command=c, description=d) for c, d in COMMANDS])
-    from aiogram.types import BotCommandScopeChat
-    for uid in SUPER_IDS:                 # главному куратору — ещё и /server
-        try:
-            await bot.set_my_commands([BotCommand(command=c, description=d) for c, d in COMMANDS]
-                                      + [BotCommand(command="server", description="Мониторинг сервера"),
-                                         BotCommand(command="lock", description="Закрыть доступ всем"),
-                                         BotCommand(command="unlock", description="Открыть доступ")],
-                                      scope=BotCommandScopeChat(chat_id=uid))
-        except Exception:  # noqa: BLE001  (куратор ещё не писал боту)
-            pass
-    if cfg.webapp_url.startswith("https://"):
-        await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(
-            text="Открыть", web_app=WebAppInfo(url=cfg.webapp_url + "/")))
-    else:
-        logging.warning("WEBAPP_URL не задан или не https:// — кнопка Mini App не появится. "
-                        "Бот работает только командами.")
+        await bot.set_my_commands([BotCommand(command=c, description=d) for c, d in COMMANDS])
+        from aiogram.types import BotCommandScopeChat
+        for uid in SUPER_IDS:
+            try:
+                await bot.set_my_commands([BotCommand(command=c, description=d) for c, d in COMMANDS]
+                                          + [BotCommand(command="server", description="Мониторинг сервера"),
+                                             BotCommand(command="lock", description="Закрыть доступ всем"),
+                                             BotCommand(command="unlock", description="Открыть доступ")],
+                                          scope=BotCommandScopeChat(chat_id=uid))
+            except Exception:
+                pass
+        if cfg.webapp_url.startswith("https://"):
+            await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(
+                text="Открыть", web_app=WebAppInfo(url=cfg.webapp_url + "/")))
+        else:
+            logging.warning("WEBAPP_URL не задан или не https:// — кнопка Mini App не появится. "
+                            "Бот работает только командами.")
 
-    dp = Dispatcher()
-    dp.include_router(setup_router(db, cfg.webapp_url, me.username))
+        dp = Dispatcher()
+        dp.include_router(setup_router(db, cfg.webapp_url, bot_username))
 
-    app = build_app(db, bot, cfg.bot_token, cfg.default_tz, me.username)
+    app = build_app(db, bot, cfg.bot_token, cfg.default_tz, bot_username)
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, cfg.host, cfg.port).start()
-    logging.info("Mini App: http://%s:%s  ·  бот @%s запущен", cfg.host, cfg.port, me.username)
+    logging.info("Mini App: http://%s:%s  ·  %s", cfg.host, cfg.port,
+                 f"бот @{bot_username} запущен" if bot else "бот не подключён (BOT_TOKEN пустой)")
 
     sched = asyncio.create_task(scheduler(bot, db, cfg.webapp_url))
     watch = asyncio.create_task(monitor.watch(db, bot, cfg.db_path))
     try:
-        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+        if dp:
+            await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+        else:
+            await asyncio.Event().wait()
     finally:
         sched.cancel()
         watch.cancel()
         await runner.cleanup()
-        await bot.session.close()
+        if bot:
+            await bot.session.close()
 
 
 if __name__ == "__main__":

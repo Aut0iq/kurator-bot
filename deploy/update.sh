@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Обновление кода на сервере. База, .env и копии не трогаются.
-# Запуск из папки с НОВОЙ версией проекта:  sudo bash deploy/update.sh
 set -euo pipefail
 APP=/opt/kurator
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

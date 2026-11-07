@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Установка «Куратор +» на Linux-сервер (Ubuntu / Debian / CentOS / Fedora / AlmaLinux).
-# Запуск из папки проекта:   sudo bash deploy/install.sh            (адрес вида 1.2.3.4.sslip.io)
-#                            sudo bash deploy/install.sh bot.mysite.ru   (свой домен)
 set -euo pipefail
 
 APP=/opt/kurator
@@ -18,7 +15,6 @@ die()  { printf '\n\033[31m✗ %s\033[0m\n' "$*"; exit 1; }
 [ "$(id -u)" -eq 0 ] || die "Запустите от root: sudo bash deploy/install.sh"
 [ -f "$SRC/bot/main.py" ] || die "Не нашёл bot/main.py — запускайте скрипт из папки проекта"
 
-# ---------- пакеты
 say "Устанавливаю системные пакеты"
 if command -v apt-get >/dev/null; then
   PM=apt
@@ -40,7 +36,6 @@ $PY -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)' \
   || die "Нужен Python 3.10 или новее (сейчас: $($PY --version)). Обновите систему, например до Ubuntu 22.04+ / Debian 12"
 ok "$($PY --version)"
 
-# ---------- копируем проект
 say "Копирую бота в $APP"
 id "$USER_NAME" >/dev/null 2>&1 || useradd --system --home "$APP" --shell /usr/sbin/nologin "$USER_NAME"
 mkdir -p "$APP/data" "$APP/backups"
@@ -54,17 +49,18 @@ elif [ -f "$APP/data/kurator.db" ]; then
   ok "база на сервере уже есть — оставляю её"
 fi
 
-# ---------- .env
 if [ ! -f "$APP/.env" ]; then
   if   [ -f "$SRC/.env" ];         then cp "$SRC/.env" "$APP/.env"
   elif [ -f "$SRC/.env.example" ]; then cp "$SRC/.env.example" "$APP/.env"
-  else die "Нет .env / .env.example с BOT_TOKEN"; fi
+  else die "Нет .env / .env.example"; fi
 fi
-grep -Eq '^BOT_TOKEN=[0-9]+:' "$APP/.env" || die "В $APP/.env не указан BOT_TOKEN"
+if ! grep -Eq '^BOT_TOKEN=' "$APP/.env"; then echo 'BOT_TOKEN=' >> "$APP/.env"; fi
+if ! grep -Eq '^BOT_TOKEN=[0-9]+:' "$APP/.env"; then
+  warn "BOT_TOKEN пустой — Telegram-уведомления отключены, вход в приложение по логину/паролю"
+fi
 
-# ---------- адрес
 IP="$(curl -4 -fsS --max-time 8 https://api.ipify.org || curl -4 -fsS --max-time 8 https://ifconfig.me || true)"
-SSLIP=""; [ -n "$IP" ] && SSLIP="bot.${IP}.sslip.io"   # свой поддомен: голый IP.sslip.io может быть занят другим сайтом на сервере
+SSLIP=""; [ -n "$IP" ] && SSLIP="bot.${IP}.sslip.io"
 if [ -z "$DOMAIN" ]; then
   [ -n "$SSLIP" ] || die "Не смог узнать внешний IP. Укажите адрес явно: sudo bash deploy/install.sh 1.2.3.4.sslip.io"
   DOMAIN="$SSLIP"
@@ -74,7 +70,6 @@ HOSTS="$DOMAIN"
 URL="https://$DOMAIN"
 PENDING=""
 if [ "$DOMAIN" != "$SSLIP" ] && [ -n "$SSLIP" ]; then
-  # домен ещё не смотрит на этот сервер (новый .ru включается до суток) — пока работаем через sslip.io
   if ! getent ahostsv4 "$DOMAIN" 2>/dev/null | awk '{print $1}' | grep -qx "$IP"; then
     URL="https://$SSLIP"; PENDING=1
     warn "домен $DOMAIN пока не указывает на $IP — временно работаю на $URL"
@@ -86,11 +81,10 @@ ok "адрес Mini App: $URL"
 PORT=8080
 while ss -ltn 2>/dev/null | grep -q ":$PORT " && ! systemctl is-active -q $SVC 2>/dev/null; do PORT=$((PORT+1)); done
 
-setenv() {  # setenv KEY VALUE — заменить или добавить строку в .env
+setenv() {
   if grep -q "^$1=" "$APP/.env"; then sed -i "s|^$1=.*|$1=$2|" "$APP/.env"; else echo "$1=$2" >> "$APP/.env"; fi
 }
 setenv WEBAPP_URL "$URL"
-# данные оператора ПДн для документов (/legal/...) — берём из .env с компьютера, если там заданы
 for k in OPERATOR_NAME OPERATOR_INFO OPERATOR_CONTACT SERVER_LOCATION; do
   for f in "$SRC/.env" "$SRC/.env.example"; do
     v="$(grep -E "^$k=" "$f" 2>/dev/null | head -1 | cut -d= -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/[|&]//g' || true)"
@@ -100,11 +94,10 @@ done
 setenv HOST 127.0.0.1
 setenv PORT "$PORT"
 setenv DB_PATH data/kurator.db
-grep -q '^CURATOR_IDS=' "$APP/.env" || echo 'CURATOR_IDS=5459053811' >> "$APP/.env"
+grep -q '^CURATOR_IDS=' "$APP/.env" || echo 'CURATOR_IDS=' >> "$APP/.env"
 chmod 600 "$APP/.env"
 ok ".env настроен (порт $PORT)"
 
-# ---------- Python-окружение
 say "Ставлю зависимости Python"
 [ -d "$APP/.venv" ] || $PY -m venv "$APP/.venv"
 "$APP/.venv/bin/pip" install -q --upgrade pip >/dev/null
@@ -112,7 +105,6 @@ say "Ставлю зависимости Python"
 chown -R "$USER_NAME:$USER_NAME" "$APP"
 ok "зависимости"
 
-# ---------- сервис бота
 say "Создаю сервис $SVC"
 cat > /etc/systemd/system/$SVC.service <<UNIT
 [Unit]
@@ -135,7 +127,6 @@ ReadWritePaths=$APP/data $APP/backups
 WantedBy=multi-user.target
 UNIT
 
-# ---------- ежедневная резервная копия
 cat > /etc/systemd/system/$SVC-backup.service <<UNIT
 [Unit]
 Description=Резервная копия базы «Куратор +»
@@ -158,7 +149,6 @@ systemctl daemon-reload
 systemctl enable -q --now $SVC-backup.timer
 ok "резервная копия каждую ночь (хранятся 14 дней, присылаются главному куратору)"
 
-# ---------- HTTPS
 say "Настраиваю HTTPS для $DOMAIN"
 WEB_BUSY="$(ss -ltnp 2>/dev/null | grep -E ':(80|443) ' | grep -oE '"[a-z0-9_-]+"' | tr -d '"' | sort -u | tr '\n' ' ' || true)"
 if echo "$WEB_BUSY" | grep -qw nginx; then
@@ -195,7 +185,7 @@ else
       $PM copr enable -y @caddy/caddy >/dev/null 2>&1 && $PM install -y -q caddy >/dev/null || true
     fi
   fi
-  if ! command -v caddy >/dev/null; then   # запасной путь — готовый бинарник
+  if ! command -v caddy >/dev/null; then
     ARCH=amd64; [ "$(uname -m)" = aarch64 ] && ARCH=arm64
     curl -fsSL "https://caddyserver.com/api/download?os=linux&arch=$ARCH" -o /usr/local/bin/caddy && chmod +x /usr/local/bin/caddy
     id caddy >/dev/null 2>&1 || useradd --system --home /var/lib/caddy --create-home --shell /usr/sbin/nologin caddy
@@ -218,18 +208,15 @@ UNIT
   CF=/etc/caddy/Caddyfile
   mkdir -p /etc/caddy
   touch $CF
-  # убираем прежний блок бота и стандартную заглушку Caddy
   sed -i '/# kurator-bot begin/,/# kurator-bot end/d' $CF
   if grep -q '^:80' $CF && grep -q 'file_server' $CF && [ "$(grep -v '^[[:space:]]*#' $CF | grep -c .)" -lt 8 ]; then : > $CF; fi
   cat >> $CF <<CADDY
-# kurator-bot begin
 $HOSTS {
     encode gzip
     reverse_proxy 127.0.0.1:$PORT
 }
-# kurator-bot end
 CADDY
-  case "$DOMAIN" in   # www.домен → домен (кроме sslip.io и поддоменов)
+  case "$DOMAIN" in
     *.sslip.io|*.*.*) ;;
     *) sed -i '/# kurator-bot end/i www.'"$DOMAIN"' {\n    redir https://'"$DOMAIN"'{uri} permanent\n}' $CF ;;
   esac
@@ -238,7 +225,6 @@ CADDY
   ok "Caddy сам получит и будет продлевать HTTPS-сертификат"
 fi
 
-# ---------- фаервол
 if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
   ufw allow 80/tcp >/dev/null; ufw allow 443/tcp >/dev/null; ok "ufw: открыл 80 и 443"
 fi
@@ -246,7 +232,6 @@ if systemctl is-active -q firewalld 2>/dev/null; then
   firewall-cmd -q --permanent --add-service=http --add-service=https && firewall-cmd -q --reload; ok "firewalld: открыл http и https"
 fi
 
-# ---------- автопереключение на свой домен, когда он заработает
 if [ -n "$PENDING" ]; then
   cat > /etc/systemd/system/$SVC-domain.service <<UNIT
 [Unit]
@@ -271,7 +256,6 @@ else
   systemctl disable -q --now $SVC-domain.timer 2>/dev/null || true
 fi
 
-# ---------- запуск
 say "Запускаю бота"
 systemctl enable -q $SVC
 systemctl restart $SVC

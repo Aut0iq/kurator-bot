@@ -10,9 +10,9 @@ import secrets
 import sqlite3
 import time
 from datetime import date
+from pathlib import Path
 from typing import Any, Iterable
 
-# P был · L опоздал · A не был · E уважительная · N не ответил на опрос (считается пропуском)
 STATUSES = ("P", "L", "A", "E", "N")
 
 ATTENDANCE_SQL = """
@@ -319,19 +319,20 @@ class DB:
         d = os.path.dirname(path)
         if d:
             os.makedirs(d, exist_ok=True)
+        self.files_dir = Path(d or ".") / "files"
+        self.files_dir.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
         self.conn.row_factory = sqlite3.Row
         self._migrate_before()
         self.conn.executescript(SCHEMA)
         self._migrate_after()
 
-    # ---------- миграции со старых версий
     def _cols(self, table: str) -> set[str]:
         return {r["name"] for r in self.conn.execute(f"PRAGMA table_info({table})")}
 
     def _migrate_before(self) -> None:
         row = self.conn.execute("SELECT sql FROM sqlite_master WHERE name='members'").fetchone()
-        if row and "'curator'" not in row["sql"]:  # старые роли head/assistant/student
+        if row and "'curator'" not in row["sql"]:
             self.conn.executescript(
                 "ALTER TABLE members RENAME TO members_old;"
                 "CREATE TABLE members (tg_id INTEGER PRIMARY KEY, group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,"
@@ -342,7 +343,7 @@ class DB:
                 "DROP TABLE members_old;"
             )
         row = self.conn.execute("SELECT sql FROM sqlite_master WHERE name='attendance'").fetchone()
-        if row and "'N'" not in row["sql"]:  # старая таблица без статуса «не ответил»
+        if row and "'N'" not in row["sql"]:
             self.conn.executescript(
                 "ALTER TABLE attendance RENAME TO attendance_old;" + ATTENDANCE_SQL +
                 "INSERT INTO attendance(lesson_id,date,student_id,status,marked_by,marked_at) "
@@ -360,6 +361,8 @@ class DB:
             "announcements": [("title", "TEXT"), ("pinned", "INTEGER NOT NULL DEFAULT 0")],
             "students": [("record_no", "TEXT"), ("email", "TEXT"), ("birth_date", "TEXT"),
                          ("parent_name", "TEXT"), ("parent_phone", "TEXT")],
+            "files": [("path", "TEXT")],
+            "attendance": [("file_path", "TEXT")],
         }
         for table, cols in add.items():
             have = self._cols(table)
@@ -369,7 +372,6 @@ class DB:
         for g in self.conn.execute("SELECT id FROM groups WHERE staff_code IS NULL").fetchall():
             self.conn.execute("UPDATE groups SET staff_code=? WHERE id=?", (_code(), g["id"]))
 
-    # ---------- базовые запросы
     def q(self, sql: str, params: Iterable[Any] = ()) -> list[dict]:
         return _rows(self.conn.execute(sql, tuple(params)).fetchall())
 
@@ -390,7 +392,6 @@ class DB:
     def happened(self, key: str) -> bool:
         return self.q1("SELECT 1 AS x FROM events_sent WHERE key=?", (key,)) is not None
 
-    # ---------- группы
     def create_group(self, name: str, tz: str, head_id: int, head_name: str, username: str | None,
                      role: str = "head", perms: str | None = None) -> dict:
         from perms import SUPER_IDS
@@ -433,14 +434,13 @@ class DB:
     def all_groups(self) -> list[dict]:
         return self.q("SELECT * FROM groups")
 
-    # ---------- участники
     def member(self, tg_id: int) -> dict | None:
         return self.q1("SELECT * FROM members WHERE tg_id=?", (tg_id,))
 
     def add_member(self, tg_id: int, gid: int, role: str, full_name: str, username: str | None) -> None:
         from perms import SUPER_IDS
         if tg_id in SUPER_IDS:
-            role = "curator"                       # главный куратор всегда входит куратором
+            role = "curator"
         self.x("INSERT OR REPLACE INTO members(tg_id, group_id, role, full_name, username) VALUES (?,?,?,?,?)",
                (tg_id, gid, role, full_name, username))
 
@@ -448,7 +448,6 @@ class DB:
         self.x("UPDATE students SET tg_id=NULL WHERE tg_id=?", (tg_id,))
         self.x("DELETE FROM members WHERE tg_id=?", (tg_id,))
 
-    # ---------- общие настройки сервиса (JSON)
     def setting(self, key: str, default=None):
         r = self.q1("SELECT value FROM settings WHERE key=?", (key,))
         return json.loads(r["value"]) if r else default
@@ -464,7 +463,6 @@ class DB:
     def all_member_ids(self) -> list[int]:
         return [r["tg_id"] for r in self.q("SELECT DISTINCT tg_id FROM members")]
 
-    # ---------- согласие на обработку ПДн
     def consent_of(self, tg_id: int) -> str | None:
         r = self.q1("SELECT version FROM consents WHERE tg_id=?", (tg_id,))
         return r["version"] if r else None
@@ -489,7 +487,7 @@ class DB:
         """Удаляет группу целиком: участников, студентов, расписание, журнал, оценки, файлы, объявления."""
         self.conn.execute("PRAGMA foreign_keys=ON")
         self.x("DELETE FROM poll_messages WHERE lesson_id IN (SELECT id FROM lessons WHERE group_id=?)", (gid,))
-        self.x("DELETE FROM groups WHERE id=?", (gid,))     # остальное удалится каскадом
+        self.x("DELETE FROM groups WHERE id=?", (gid,))
 
     def members(self, gid: int) -> list[dict]:
         return self.q(
@@ -523,7 +521,6 @@ class DB:
     def set_reminders(self, tg_id: int, on: bool) -> None:
         self.x("UPDATE members SET reminders=? WHERE tg_id=?", (1 if on else 0, tg_id))
 
-    # ---------- студенты
     def students(self, gid: int, include_archived: bool = False) -> list[dict]:
         sql = "SELECT * FROM students WHERE group_id=?" + ("" if include_archived else " AND archived=0")
         return self.q(sql + " ORDER BY full_name COLLATE NOCASE", (gid,))
@@ -620,7 +617,7 @@ class DB:
 
     def delete_student(self, gid: int, sid: int) -> None:
         import passwords
-        self.x("DELETE FROM app_sessions WHERE tg_id=?", (passwords.parent_id(sid),))     # входы родителя
+        self.x("DELETE FROM app_sessions WHERE tg_id=?", (passwords.parent_id(sid),))
         self.x("DELETE FROM consents WHERE tg_id=?", (passwords.parent_id(sid),))
         self.x("DELETE FROM students WHERE id=? AND group_id=?", (sid, gid))
 
@@ -635,7 +632,6 @@ class DB:
         self.x("UPDATE students SET tg_id=? WHERE id=?", (tg_id, sid))
         return True
 
-    # ---------- вход по номеру студенческого и паролю
     def students_by_record(self, record_norm: str) -> list[dict]:
         import passwords
         return [s for s in self.q("SELECT * FROM students WHERE record_no IS NOT NULL AND record_no != '' AND archived=0")
@@ -702,7 +698,6 @@ class DB:
     def unlink_student(self, gid: int, sid: int) -> None:
         self.x("UPDATE students SET tg_id=NULL WHERE id=? AND group_id=?", (sid, gid))
 
-    # ---------- расписание
     def lessons(self, gid: int, include_oneoff: bool = True) -> list[dict]:
         sql = "SELECT * FROM lessons WHERE group_id=?" + ("" if include_oneoff else " AND date IS NULL")
         return self.q(sql + " ORDER BY weekday, t_start", (gid,))
@@ -722,7 +717,6 @@ class DB:
     def delete_lesson(self, gid: int, lid: int) -> None:
         self.x("DELETE FROM lessons WHERE id=? AND group_id=?", (lid, gid))
 
-    # ---------- переносы и отмены пар
     def change_on(self, lid: int, d: str) -> dict | None:
         return self.q1("SELECT * FROM lesson_changes WHERE lesson_id=? AND date=?", (lid, d))
 
@@ -769,7 +763,6 @@ class DB:
                       by.get("tg_id"), by.get("full_name"), int(time.time())))
         return self.q1("SELECT * FROM lesson_changes WHERE id=?", (cid,))
 
-    # ---------- кто в сети
     def touch(self, tg_id: int, via: str, day: str, now: int) -> bool:
         """Отмечает активность. False — человек ещё не в группе (тогда не пишем историю)."""
         if not self.conn.execute("UPDATE members SET last_seen=?, last_via=? WHERE tg_id=?", (now, via, tg_id)).rowcount:
@@ -792,7 +785,6 @@ class DB:
         return [r["subject"] for r in self.q(
             "SELECT DISTINCT subject FROM lessons WHERE group_id=? ORDER BY subject COLLATE NOCASE", (gid,))]
 
-    # ---------- периоды (каникулы / сессии / практика)
     def periods(self, gid: int) -> list[dict]:
         return self.q("SELECT * FROM periods WHERE group_id=? ORDER BY d1", (gid,))
 
@@ -802,7 +794,6 @@ class DB:
     def delete_period(self, gid: int, pid: int) -> None:
         self.x("DELETE FROM periods WHERE id=? AND group_id=?", (pid, gid))
 
-    # ---------- посещаемость
     def marks(self, lesson_id: int, date: str) -> dict[int, str]:
         rs = self.q("SELECT student_id, status FROM attendance WHERE lesson_id=? AND date=?", (lesson_id, date))
         return {r["student_id"]: r["status"] for r in rs}
@@ -834,9 +825,11 @@ class DB:
             self.conn.execute("ROLLBACK")
             raise
 
-    def set_reason(self, lesson_id: int, date: str, sid: int, reason: str | None, file_id: str | None) -> None:
-        self.x("UPDATE attendance SET reason=COALESCE(?, reason), file_id=COALESCE(?, file_id) "
-               "WHERE lesson_id=? AND date=? AND student_id=?", (reason, file_id, lesson_id, date, sid))
+    def set_reason(self, lesson_id: int, date: str, sid: int, reason: str | None, file_id: str | None,
+                   file_path: str | None = None) -> None:
+        self.x("UPDATE attendance SET reason=COALESCE(?, reason), file_id=COALESCE(?, file_id), "
+               "file_path=COALESCE(?, file_path) WHERE lesson_id=? AND date=? AND student_id=?",
+               (reason, file_id, file_path, lesson_id, date, sid))
 
     def marked_counts(self, gid: int, date: str) -> dict[int, dict]:
         rs = self.q("SELECT a.lesson_id, a.status, COUNT(*) AS n FROM attendance a JOIN lessons l ON l.id=a.lesson_id "
@@ -856,7 +849,6 @@ class DB:
                     "WHERE l.group_id=? AND a.date BETWEEN ? AND ? GROUP BY a.date", (gid, date_from, date_to))
         return {r["date"]: r["n"] for r in rs}
 
-    # ---------- самоотметка по коду
     def open_checkin(self, gid: int, lesson_id: int, date: str, minutes: int) -> dict:
         self.x("DELETE FROM checkins WHERE group_id=? AND (expires_at < ? OR (lesson_id=? AND date=?))",
                (gid, int(time.time()), lesson_id, date))
@@ -875,14 +867,12 @@ class DB:
         return self.q1("SELECT * FROM checkins WHERE group_id=? AND code=? AND expires_at>=? ORDER BY id DESC",
                        (gid, code.strip(), int(time.time())))
 
-    # ---------- сообщения опросов
     def save_poll_message(self, lesson_id: int, date: str, tg_id: int, message_id: int) -> None:
         self.x("INSERT OR REPLACE INTO poll_messages VALUES (?,?,?,?)", (lesson_id, date, tg_id, message_id))
 
     def poll_messages(self, lesson_id: int, date: str) -> list[dict]:
         return self.q("SELECT * FROM poll_messages WHERE lesson_id=? AND date=?", (lesson_id, date))
 
-    # ---------- объявления
     def add_announcement(self, gid: int, author: int, title: str | None, text: str, pinned: bool) -> int:
         return self.x("INSERT INTO announcements(group_id, author_id, title, text, pinned, created_at) VALUES (?,?,?,?,?,?)",
                       (gid, author, title, text, 1 if pinned else 0, int(time.time())))
@@ -903,12 +893,11 @@ class DB:
     def delete_announcement(self, gid: int, aid: int) -> None:
         self.x("DELETE FROM announcements WHERE id=? AND group_id=?", (aid, gid))
 
-    # ---------- база знаний
     def add_file(self, gid: int, subject: str, title: str, file_id: str, file_type: str, size: int | None,
-                 uploader: int, uploader_name: str) -> int:
-        return self.x("INSERT INTO files(group_id, subject, title, file_id, file_type, size, uploader, uploader_name, created_at) "
-                      "VALUES (?,?,?,?,?,?,?,?,?)",
-                      (gid, subject[:120], title[:200], file_id, file_type, size, uploader, uploader_name, int(time.time())))
+                 uploader: int, uploader_name: str, path: str | None = None) -> int:
+        return self.x("INSERT INTO files(group_id, subject, title, file_id, file_type, size, uploader, uploader_name, created_at, path) "
+                      "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                      (gid, subject[:120], title[:200], file_id, file_type, size, uploader, uploader_name, int(time.time()), path))
 
     def files(self, gid: int) -> list[dict]:
         return self.q("SELECT * FROM files WHERE group_id=? ORDER BY subject COLLATE NOCASE, id DESC", (gid,))
@@ -919,7 +908,6 @@ class DB:
     def delete_file(self, gid: int, fid: int) -> None:
         self.x("DELETE FROM files WHERE id=? AND group_id=?", (fid, gid))
 
-    # ---------- успеваемость (ведомость за месяц)
     def grade_months(self, gid: int) -> list[dict]:
         return self.q("SELECT id, month, updated_at FROM grade_months WHERE group_id=? ORDER BY month DESC", (gid,))
 
@@ -957,7 +945,6 @@ class DB:
                "missed_bad=excluded.missed_bad, note=excluded.note",
                (mid, sid, json.dumps(grades, ensure_ascii=False), missed_total, missed_bad, note))
 
-    # ---------- вход в приложение (Android / браузер) по подтверждению в Telegram
     def app_login_start(self) -> str:
         self.x("DELETE FROM app_logins WHERE created_at < ?", (int(time.time()) - 900,))
         code = secrets.token_urlsafe(12).replace("-", "a").replace("_", "b")
@@ -996,6 +983,9 @@ class DB:
         import hashlib
         h = hashlib.sha256(token.encode()).hexdigest()
         r = self.q1("SELECT * FROM app_sessions WHERE token_hash=?", (h,))
+        if r and time.time() - r["last_used"] > 90 * 86400:
+            self.app_logout(token)
+            return None
         if r and time.time() - r["last_used"] > 60:
             self.x("UPDATE app_sessions SET last_used=? WHERE token_hash=?", (int(time.time()), h))
         return r
@@ -1012,7 +1002,6 @@ class DB:
         self.x("DELETE FROM app_sessions WHERE tg_id=?", (tg_id,))
         return n
 
-    # ---------- журнал действий
     def audit(self, gid: int | None, actor: dict | None, action: str, text: str, students: list[int] | None = None) -> None:
         name = None
         if actor:
@@ -1038,7 +1027,6 @@ class DB:
     def prune_audit(self, before_ts: int) -> None:
         self.x("DELETE FROM audit WHERE at < ?", (before_ts,))
 
-    # ---------- события для уведомлений в приложении
     def add_feed(self, gid: int, kind: str, title: str, body: str | None = None, target: int | None = None,
                  author: int | None = None) -> int:
         return self.x("INSERT INTO feed(group_id, target, author, kind, title, body, created_at) VALUES (?,?,?,?,?,?,?)",
@@ -1058,7 +1046,6 @@ class DB:
     def set_push(self, tg_id: int, on: bool) -> None:
         self.x("UPDATE members SET push=? WHERE tg_id=?", (1 if on else 0, tg_id))
 
-    # ---------- домашние задания
     def homework_list(self, gid: int, d_from: str | None = None, d_to: str | None = None) -> list[dict]:
         sql, params = "SELECT * FROM homework WHERE group_id=?", [gid]
         if d_from:
@@ -1098,7 +1085,6 @@ class DB:
         else:
             self.x("DELETE FROM homework_done WHERE hw_id=? AND student_id=?", (hid, sid))
 
-    # ---------- вход по логину и паролю для старост и кураторов
     def staff_auth(self, tg_id: int) -> dict:
         return self.q1("SELECT * FROM staff_auth WHERE tg_id=?", (tg_id,)) or {}
 
@@ -1122,7 +1108,6 @@ class DB:
     def staff_code_try(self, tg_id: int) -> None:
         self.x("UPDATE staff_auth SET code_tries = code_tries + 1 WHERE tg_id=?", (tg_id,))
 
-    # ---------- вход родителя
     def parent_auth(self, sid: int) -> dict:
         return self.q1("SELECT * FROM parent_auth WHERE student_id=?", (sid,)) or {}
 
@@ -1139,7 +1124,6 @@ class DB:
                "pass_hash=excluded.pass_hash, pass_set_at=excluded.pass_set_at, code_hash=NULL, code_expires=NULL, code_tries=0",
                (sid, pass_hash, int(time.time())))
 
-    # ---------- резервные копии
     def backup_to(self, path: str) -> None:
         dst = sqlite3.connect(path)
         try:

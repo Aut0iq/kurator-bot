@@ -6,16 +6,13 @@
 import json
 import os
 
-import config  # noqa: F401  — подгружает .env до чтения CURATOR_IDS
+import config
 
-# Главные кураторы: Telegram ID через запятую в .env (CURATOR_IDS). У них всегда все права,
-# их роль и права не может изменить никто другой.
-SUPER_IDS = {int(x) for x in os.getenv("CURATOR_IDS", "5459053811").replace(" ", "").split(",") if x.isdigit()}
+SUPER_IDS = {int(x) for x in os.getenv("CURATOR_IDS", "").replace(" ", "").split(",") if x.isdigit()}
 
 ROLES = {"head": "Староста", "deputy": "Зам. старосты", "curator": "Куратор", "student": "Студент"}
-FULL_ROLES = ("head", "deputy")          # у этих ролей всегда все права
+FULL_ROLES = ("head", "deputy")
 
-# ключ → (название, пояснение). Порядок = порядок в интерфейсе.
 PERMS = {
     "journal":    ("Видеть журнал и статистику", "Журнал, живая сводка, прогулы, проценты по студентам, сводки после пар"),
     "attendance": ("Отмечать посещаемость", "Ставить и исправлять отметки, открывать код на доску"),

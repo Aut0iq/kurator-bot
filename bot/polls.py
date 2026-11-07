@@ -65,10 +65,10 @@ def can_answer(db: DB, group: dict, lesson: dict, d: str) -> bool:
     тогда тоже принимаем ответ, если время опроса уже наступило."""
     if db.happened(f"summary:{lesson['id']}:{d}"):
         return False
-    if db.happened(f"poll:{lesson['id']}:{d}"):
-        return True
     from logic import now_in
     now = now_in(group["tz"])
+    if db.happened(f"poll:{lesson['id']}:{d}"):
+        return d == now.date().isoformat()
     if d != now.date().isoformat() or not group.get("polls_enabled"):
         return False
     h, m = map(int, lesson["t_start"].split(":"))
@@ -79,7 +79,7 @@ def can_answer(db: DB, group: dict, lesson: dict, d: str) -> bool:
 async def send_polls(bot: Bot, db: DB, group: dict, lesson: dict, d: str, minutes_left: int, webapp_url: str) -> int:
     text = poll_text(group, lesson, minutes_left)
     sent = 0
-    students = [s for s in db.students(group["id"]) if s["tg_id"] and s["tg_id"] > -8_000_000_000_000]   # без Telegram — только в приложении
+    students = [s for s in db.students(group["id"]) if bot and s["tg_id"] and s["tg_id"] > 0]
     linked = {s["tg_id"] for s in students}
     existing = db.marks(lesson["id"], d)
     for s in students:
@@ -87,10 +87,9 @@ async def send_polls(bot: Bot, db: DB, group: dict, lesson: dict, d: str, minute
             msg = await bot.send_message(s["tg_id"], text, reply_markup=poll_kb(lesson["id"], d, existing.get(s["id"])))
             db.save_poll_message(lesson["id"], d, s["tg_id"], msg.message_id)
             sent += 1
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             log.info("poll to %s failed: %s", s["tg_id"], e)
         await asyncio.sleep(0.05)
-    # тем, кто отмечает посещаемость и сам не студент (староста без ФИО, куратор с правом отметок)
     for m in db.staff(group["id"], "attendance"):
         if m["tg_id"] not in linked and m["reminders"]:
             await safe_send(bot, m["tg_id"], f"⏰ Через {minutes_left} мин: <b>{esc(lesson['subject'])}</b> "
@@ -117,10 +116,9 @@ async def summarize(bot: Bot, db: DB, group: dict, lesson: dict, d: str, webapp_
     silent = [s for s in students if s["id"] not in marks]
     if silent:
         db.set_marks(lid, d, {s["id"]: "N" for s in silent}, 0, source="auto")
-    # закрываем кнопки у тех, кто промолчал
     final = db.marks(lid, d)
     by_tg = {s["tg_id"]: s for s in students if s["tg_id"]}
-    for pm in db.poll_messages(lid, d):
+    for pm in (db.poll_messages(lid, d) if bot else []):
         st = by_tg.get(pm["tg_id"])
         status = final.get(st["id"]) if st else None
         try:
@@ -130,7 +128,7 @@ async def summarize(bot: Bot, db: DB, group: dict, lesson: dict, d: str, webapp_
                                                     "отмечено «не ответил». Если вы на паре, подойдите к старосте.")
         except TelegramBadRequest:
             pass
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             log.info("close poll %s: %s", pm["tg_id"], e)
 
     c = live_counts(db, group, lesson, d)
@@ -152,7 +150,6 @@ async def summarize(bot: Bot, db: DB, group: dict, lesson: dict, d: str, webapp_
         lines.append("🎉 Все на месте!")
     lines.append("\n<i>Поправить отметки можно в приложении → Журнал.</i>")
 
-    # прогулы по предмету: сообщаем, когда кто-то ровно достиг порога
     limit = int(group.get("truancy_limit") or 3)
     d1, d2 = semester_range(group, date.fromisoformat(d))
     recs = [r for r in db.attendance_range(group["id"], d1.isoformat(), d) if r["subject"] == lesson["subject"]]
@@ -170,8 +167,12 @@ async def summarize(bot: Bot, db: DB, group: dict, lesson: dict, d: str, webapp_
     if webapp_url:
         kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
             text="📱 Открыть журнал", web_app=WebAppInfo(url=webapp_url + "/#journal"))]])
+    import re
+    plain = re.sub(r"<[^>]+>", "", "\n".join(lines))
     for m in db.staff(group["id"]):
         if m["reminders"]:
+            db.add_feed(group["id"], "summary", f"Сводка: {lesson['subject']} ({lesson['t_start']})",
+                        plain, target=m["tg_id"])
             await safe_send(bot, m["tg_id"], "\n".join(lines), reply_markup=kb)
 
 
@@ -193,8 +194,11 @@ async def weekly_digest(bot: Bot, db: DB, group: dict) -> None:
         lines += ["", "Больше всего пропусков:"] + [f"• {esc(s['full_name'])} — {s['missed']}" for s in worst]
     else:
         lines.append("\nБез пропусков — отличная неделя 🎉")
+    import re
+    plain = re.sub(r"<[^>]+>", "", "\n".join(lines))
     for m in db.staff(group["id"], "journal"):
         if m["reminders"]:
+            db.add_feed(group["id"], "summary", f"Итоги недели · {group['name']}", plain, target=m["tg_id"])
             await safe_send(bot, m["tg_id"], "\n".join(lines))
 
 

@@ -1,7 +1,7 @@
 "use strict";
-/* ================= Экраны ================= */
 
-/* ---------- Вход: создать группу / вступить ---------- */
+
+
 function renderOnboarding() {
   const name = h("input", { placeholder: "Например, 15-116П" });
   let myRole = "head";
@@ -9,6 +9,8 @@ function renderOnboarding() {
   const drawRole = () => roleChips.replaceChildren(...[["head", "Староста"], ["curator", "Куратор"]].map(([k, v]) => h("button", { class: "chip " + (myRole === k ? "on" : ""), onclick: () => { myRole = k; selTick(); drawRole(); } }, v)));
   drawRole();
   const code = h("input", { placeholder: "Код из приглашения", style: "text-transform:uppercase;letter-spacing:3px;font-weight:700" });
+  const q = new URLSearchParams(location.search);
+  code.value = (q.get("join") || q.get("staff") || "").toUpperCase();
   mount("fade",
     h("div", { class: "hero rise", style: "padding-top:34px;text-align:center" },
       h("img", { class: "brand-logo pop", src: "/static/logo.webp", alt: "Куратор +", width: 84, height: 84, style: "display:block;margin:0 auto 14px" }),
@@ -33,7 +35,7 @@ function renderOnboarding() {
   if (store.get("intent") === "create") { store.set("intent", null); setTimeout(() => { name.focus(); name.scrollIntoView({ block: "center", behavior: "smooth" }); }, 400); }
 }
 
-/* ---------- Студент: ввести ФИО ---------- */
+
 async function renderRegister() {
   const { students } = await api("/students");
   const name = h("input", { placeholder: "Фамилия Имя", autocomplete: "name" });
@@ -63,7 +65,7 @@ function chooseSelf(list, typed) {
       await api("/me/register", { body: { full_name: typed, new: true } }); closeSheet(); notify(); boot(); }) }, "Меня здесь нет")));
 }
 
-/* ---------- Главная ---------- */
+
 let liveTimer = null;
 async function renderHome() {
   clearInterval(liveTimer);
@@ -93,7 +95,7 @@ async function renderHome() {
   if ([12, 1, 5, 6, 7].includes(+S.me.today.slice(5, 7))) parts.push(wrappedCard());
   if (can("settings", "schedule", "invite")) parts.push(onboardingCard());
 
-  // таймлайн дня
+
   if (day.lessons.length) {
     const nm = new Date().getHours() * 60 + new Date().getMinutes();
     parts.push(h("div", { class: "section rise" }, `Сегодня · ${day.lessons.length} ${plural(day.lessons.length, "пара", "пары", "пар")}`,
@@ -118,12 +120,12 @@ async function renderHome() {
     })));
   }
 
-  // объявления (закреплённые)
+
   const pinned = ann.items.filter(a => a.pinned).slice(0, 2);
   if (pinned.length) parts.push(h("div", { class: "section rise" }, "Важное", h("a", { onclick: () => go(S.tab, "announcements") }, "Все")),
     pinned.map(a => h("div", { class: "card rise pinned" }, a.title ? h("b", {}, a.title) : null, h("div", { style: "white-space:pre-wrap;margin-top:2px" }, a.text))));
 
-  // быстрые действия
+
   const qa = (ic, c, title, sub, fn) => h("button", { class: "qa rise", onclick: fn }, h("div", { class: "tile " + c }, icon(ic)), h("b", {}, title), h("span", {}, sub));
   parts.push(h("div", { class: "section rise" }, "Быстрые действия"));
   parts.push(isStaff()
@@ -190,7 +192,7 @@ function liveCard(live, day, quiet = false) {
         can("attendance") ? h("button", { class: "btn ghost sm", onclick: () => openCheckin(dayLesson, live.date) }, icon("key", "sm"), dayLesson.checkin ? dayLesson.checkin.code : "Код") : null,
         can("attendance") ? h("button", { class: "btn sm", onclick: () => openAttendance(dayLesson, live.date) }, icon("edit", "sm"), "Отметить") : null));
   }
-  // студент
+
   const my = live.my_status;
   const dayLesson = day.lessons.find(x => x.id === l.id) || l;
   const answer = (k, ic, color, text) => h("button", { class: `answer ${k} ${my === k ? "on" : ""}`, onclick: act(async () => {
@@ -210,7 +212,7 @@ function openLiveList(live) {
   const c = live.counts;
   const group = (k, title) => (c[k] || []).length ? [h("div", { class: "section" }, title, h("span", { class: "badge " + (k === "none" ? "kind" : k) }, c[k].length)),
     h("div", { class: "list" }, c[k].map(s => h("div", { class: "item" }, ava(s.full_name), h("div", { class: "grow" }, s.full_name,
-      s.reason ? h("div", { class: "muted small" }, "📄 ", s.reason) : null, !s.linked ? h("div", { class: "muted tiny" }, "не подключён к боту") : null))))] : null;
+      s.reason ? h("div", { class: "muted small" }, "📄 ", s.reason) : null, !s.linked ? h("div", { class: "muted tiny" }, "нет аккаунта") : null))))] : null;
   openSheet(h("h3", {}, live.lesson.subject), h("div", { class: "muted small" }, `${live.lesson.t_start}–${live.lesson.t_end}`),
     group("P", "На паре"), group("L", "Опаздывают"), group("A", "Не придут"), group("E", "Уважительная"), group("N", "Не ответили"), group("none", "Ждём ответа"));
 }
@@ -263,7 +265,7 @@ function openLessonInfo(l, date) {
       : h("button", { class: "btn ghost", onclick: () => openChangeSheet(l, date) }, icon("edit", "sm"), "Перенос / отмена")) : null);
 }
 
-/* ---------- переносы и отмены пар ---------- */
+
 function changeBadge(l) {
   return l.cancelled ? h("span", { class: "badge A" }, "отменена") : l.moved ? h("span", { class: "badge L" }, "перенесена") : null;
 }
@@ -301,7 +303,7 @@ function openChangeSheet(l, date) {
   draw();
   openSheet(h("h3", {}, l.subject), h("div", { class: "muted small" }, `${fmtDateLong(date)} · ${l.t_start}–${l.t_end}` + (l.room ? ` · ауд. ${l.room}` : "")),
     tabs, box,
-    h("label", { class: "item", style: "padding:14px 2px 0;cursor:pointer" }, h("div", { class: "grow" }, "Сообщить группе в Telegram"), h("span", { class: "switch" }, notifyBox, h("i"))),
+    h("label", { class: "item", style: "padding:14px 2px 0;cursor:pointer" }, h("div", { class: "grow" }, "Сообщить группе"), h("span", { class: "switch" }, notifyBox, h("i"))),
     h("div", { class: "btns" }, h("button", { class: "btn block", onclick: act(async () => {
       const body = { date, kind, reason: reason.value, notify: notifyBox.checked };
       if (kind === "move") Object.assign(body, { new_date: nd.value, new_start: t1.value, new_end: t2.value, new_room: room.value });
@@ -324,12 +326,12 @@ async function pickLessonToChange() {
       changeBadge(l) || icon("right", "sm chev"))) : [h("div", { class: "item muted small" }, "В этот день пар нет")]));
   };
   dIn.onchange = load;
-  openSheet(h("h3", {}, "Перенос или отмена пары"), h("p", { class: "muted small", style: "margin:4px 0 0" }, "Выберите день и пару — группа получит уведомление в Telegram."),
+  openSheet(h("h3", {}, "Перенос или отмена пары"), h("p", { class: "muted small", style: "margin:4px 0 0" }, "Выберите день и пару — группа получит уведомление."),
     h("label", { class: "f" }, "День"), dIn, list);
   load();
 }
 
-/* ---------- Отметка посещаемости (шторка) ---------- */
+
 async function openAttendance(lesson, date) {
   const { students } = await safe(() => api(`/attendance?lesson_id=${lesson.id}&date=${date}`));
   const marks = Object.fromEntries(students.map(s => [s.id, s.status]));
@@ -358,7 +360,7 @@ async function openAttendance(lesson, date) {
     counter,
     students.length ? h("div", { class: "list" }, students.map(s => h("div", { class: "item", style: "padding:9px 12px" },
       h("div", { class: "grow" }, h("div", { class: "ellipsis", style: "font-size:14px;font-weight:600" }, s.full_name),
-        h("div", { class: "muted tiny" }, s.reason ? "📄 " + s.reason : s.source === "poll" ? "ответил в опросе" : s.source === "code" ? "отметился кодом" : s.status === "N" ? "не ответил на опрос" : !s.linked ? "не подключён к боту" : "")),
+        h("div", { class: "muted tiny" }, s.reason ? "📄 " + s.reason : s.source === "poll" ? "ответил в опросе" : s.source === "code" ? "отметился кодом" : s.status === "N" ? "не ответил на опрос" : !s.linked ? "нет аккаунта" : "")),
       seg(s))))
       : empty("users", "Пока нет студентов", "Пригласите группу — студенты появятся сами"),
     h("div", { class: "btns" }, h("button", { class: "btn block", onclick: act(async () => {
@@ -403,7 +405,7 @@ function showCode(lesson, c) {
   tick();
 }
 
-/* ---------- Журнал ---------- */
+
 async function renderJournal() {
   if (S.journalDate) return renderJournalDay();
   const month = S.journalMonth || S.me.today.slice(0, 7);
@@ -481,18 +483,20 @@ function pickStatus(s, l, ds, m, onSet) {
   openSheet(h("h3", {}, s.full_name), h("div", { class: "muted small" }, `${l.subject} · ${fmtDate(ds)}, ${l.t_start}`),
     m?.reason ? h("div", { class: "note", style: "background:color-mix(in srgb,var(--E) 12%,transparent)" }, "📄 ", m.reason) : null,
     m?.has_file ? h("button", { class: "btn ghost block sm", style: "margin-top:10px", onclick: act(async () => {
-      await api("/attendance/file", { body: { lesson_id: l.id, date: ds, student_id: s.id } }); toast("Справка отправлена в чат с ботом", "check"); }) }, icon("file", "sm"), "Получить справку в чат") : null,
+      if (IN_TG) { await api("/attendance/file", { body: { lesson_id: l.id, date: ds, student_id: s.id } }); toast("Справка отправлена в чат с ботом", "check"); }
+      else { await downloadFile(`/attendance/file?lesson_id=${l.id}&date=${ds}&student_id=${s.id}`, "spravka"); toast("Справка скачивается", "check"); } }) },
+      icon("file", "sm"), IN_TG ? "Получить справку в чат" : "Открыть справку") : null,
     h("div", { class: "status-pick" }, Object.entries(ST).map(([k, v]) => h("button", { class: k, onclick: () => set(k) }, h("b", { style: "font-size:16px" }, ST_SHORT[k]), v))),
     m ? h("div", { class: "btns" }, h("button", { class: "btn plain", onclick: () => set(null) }, "Снять отметку")) : null);
 }
 
-/* ---------- Расписание ---------- */
+
 async function renderSchedule() {
   const { lessons, periods, changes = [] } = await api("/lessons");
   const g = S.me.group, todayWd = wdOf(S.me.today);
   const curParity = S.me.week ? (S.me.week % 2 ? 1 : 2) : 0;
   if (S.schedWeek == null) S.schedWeek = curParity || 1;
-  const wk = S.schedWeek;                       // 1 нечётная · 2 чётная · 0 все пары списком
+  const wk = S.schedWeek;
   const regular = lessons.filter(l => !l.date), oneoff = lessons.filter(l => l.date);
   const shown = regular.filter(l => !wk || !l.parity || l.parity === wk);
   const both = regular.filter(l => !l.parity).length, odd = regular.filter(l => l.parity === 1).length, even = regular.filter(l => l.parity === 2).length;
@@ -511,7 +515,7 @@ async function renderSchedule() {
     can("settings") && !g.semester_start ? h("button", { class: "btn ghost sm", onclick: () => go("more", "settings") }, "Указать") : null));
 
   if (can("schedule")) parts.push(h("div", { class: "btns rise", style: "margin:0 0 6px" },
-    h("button", { class: "btn ghost sm", onclick: act(async () => { await api("/schedule/template", { body: {} }); toast("Шаблон отправлен в чат с ботом", "check"); }) }, icon("upload", "sm"), "Из Excel"),
+    h("button", { class: "btn ghost sm", onclick: scheduleImport }, icon("upload", "sm"), "Из Excel"),
     h("button", { class: "btn ghost sm", onclick: () => go("schedule", "periods") }, icon("palm", "sm"), `Каникулы${periods.length ? " · " + periods.length : ""}`),
     both && wk ? h("button", { class: "btn ghost sm", onclick: () => splitWeeks(regular) }, icon("copy", "sm"), "Разделить") : null));
 
@@ -583,7 +587,7 @@ function editLesson(l = {}) {
     note: h("input", { value: l.note || "", placeholder: "Например, «принести форму»" }),
   };
   const dl = h("datalist", { id: "subj" }, (S.me.subjects || []).map(s => h("option", { value: s })));
-  // авто-конец пары через 1:30
+
   f.t_start.addEventListener("change", () => { const m = toMin(f.t_start.value) + 90; f.t_end.value = `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`; });
   const save = act(async () => {
     const body = Object.fromEntries(Object.entries(f).map(([k, el]) => [k, el.value]));
@@ -628,7 +632,7 @@ async function renderPeriods() {
   });
 }
 
-/* ---------- Студенты ---------- */
+
 async function renderStudents() {
   const { students, grades_month } = await api("/students" + (S.showArch ? "?archived=1" : ""));
   const active = students.filter(s => !s.archived), linked = active.filter(s => s.tg_id).length;
@@ -654,7 +658,7 @@ async function renderStudents() {
   const chip = (k, t) => h("button", { class: "chip " + (filter === k ? "on" : ""), onclick: () => { S.stuFilter = k; S.anim = "fade"; selTick(); render(); } }, t);
   mount(S.anim, pageTitle("Студенты", canSeeOnline() ? h("button", { class: "btn ghost sm", onclick: () => go("students", "online") }, h("span", { class: "dot", style: "background:var(--P)" }), "Кто в сети") : null),
     h("div", { class: "card rise", style: "background:linear-gradient(135deg,color-mix(in srgb,var(--a1) 14%,var(--card)),var(--card))" },
-      h("div", { class: "row" }, h("div", { class: "grow" }, h("b", {}, `${linked} из ${active.length} подключены к боту`),
+      h("div", { class: "row" }, h("div", { class: "grow" }, h("b", {}, `${linked} из ${active.length} с аккаунтом`),
         h("div", { class: "muted small" }, "Только подключённые получают опросы перед парой")),
         can("invite", "roles") ? h("button", { class: "btn sm", onclick: shareInvite }, icon("share", "sm"), "Пригласить") : null),
       h("div", { class: "progress", style: "margin-top:12px" }, h("i", { style: `width:${active.length ? 100 * linked / active.length : 0}%` }))),
@@ -704,7 +708,7 @@ function editStudent(s, all = []) {
   });
   openSheet(
     h("div", { class: "row", style: "margin-bottom:6px" }, ava(s.full_name), h("div", { class: "grow" }, h("h3", {}, s.full_name),
-      h("div", { class: "muted small" }, [s.archived ? "Отчислен" : s.tg_id ? "Подключён к боту" : "Ещё не подключился к боту", age ? `${age} ${plural(age, "год", "года", "лет")}` : null].filter(Boolean).join(" · ")))),
+      h("div", { class: "muted small" }, [s.archived ? "Отчислен" : s.tg_id ? "Аккаунт подключён" : "Аккаунта нет", age ? `${age} ${plural(age, "год", "года", "лет")}` : null].filter(Boolean).join(" · ")))),
     h("div", { class: "section" }, "Основное"),
     h("label", { class: "f", style: "margin-top:0" }, "ФИО"), f.full_name,
     h("div", { class: "grid2" }, h("div", {}, h("label", { class: "f" }, "№ студенческого"), f.record_no), h("div", {}, h("label", { class: "f" }, "Дата рождения"), f.birth_date)),
@@ -745,11 +749,13 @@ function editStudent(s, all = []) {
 function shareInvite() {
   const g = S.me.group;
   if (!g.invite_link && !g.staff_link) return toast("Приглашение доступно старосте");
-  const text = `👋 Ребята, подключил группу «${g.name}» к боту «Куратор +». Перейдите по ссылке и впишите ФИО — дальше бот сам будет спрашивать перед парами`;
+  const text = S.me?.telegram
+    ? `👋 Ребята, подключил группу «${g.name}» к боту «Куратор +». Перейдите по ссылке и впишите ФИО — дальше бот сам будет спрашивать перед парами`
+    : `👋 Ребята, подключил группу «${g.name}» к «Куратор +». Перейдите по ссылке и впишите ФИО — дальше приложение само будет спрашивать перед парами`;
   const staffPart = g.staff_link ? [h("div", { class: "section" }, "Куратор и зам. старосты"),
     h("div", { class: "card" }, h("div", { class: "muted small" }, "Отдельная ссылка для преподавателя-куратора. Вступивший по ней получает роль «Куратор»; потом в «Участниках» её можно сменить на «Зам. старосты» и настроить права."),
       h("div", { class: "btns" },
-        h("button", { class: "btn ghost sm", onclick: () => { haptic(); openLink(`https://t.me/share/url?url=${encodeURIComponent(g.staff_link)}&text=${encodeURIComponent(`Приглашение в группу «${g.name}» в роли куратора`)}`); } }, icon("share", "sm"), "Отправить"),
+        S.me?.telegram ? h("button", { class: "btn ghost sm", onclick: () => { haptic(); openLink(`https://t.me/share/url?url=${encodeURIComponent(g.staff_link)}&text=${encodeURIComponent(`Приглашение в группу «${g.name}» в роли куратора`)}`); } }, icon("share", "sm"), "Отправить") : null,
         h("button", { class: "btn plain sm", onclick: () => navigator.clipboard?.writeText(g.staff_link).then(() => toast("Ссылка скопирована", "check")) }, icon("copy", "sm"), "Копировать"),
         h("button", { class: "btn plain sm", style: "flex:0 0 46px", title: "Перевыпустить", onclick: () => confirmDo("Старая ссылка для кураторов перестанет работать. Продолжить?", () => safe(async () => {
           const r = await api("/group/invite", { body: { staff: true } }); g.staff_link = r.staff_link; closeSheet(); shareInvite(); toast("Новая ссылка готова", "check"); })) }, icon("refresh", "sm"))))] : null;
@@ -757,17 +763,17 @@ function shareInvite() {
   openSheet(h("h3", {}, "Пригласить студентов"),
     h("div", { class: "card", style: "text-align:center;margin-top:12px" }, h("div", { class: "muted tiny", style: "font-weight:700;letter-spacing:.08em" }, "КОД ГРУППЫ"),
       h("div", { class: "code pop", style: "font-size:40px;letter-spacing:8px" }, g.invite_code || ""), h("div", { class: "muted small ellipsis" }, g.invite_link)),
-    h("p", { class: "muted small" }, "Отправьте в беседу группы готовое сообщение со ссылкой. Студент нажмёт — код подставится сам, останется вписать ФИО."),
-    h("div", { class: "btns" }, h("button", { class: "btn", onclick: () => {
+    h("p", { class: "muted small" }, "Отправьте группе готовое сообщение со ссылкой. Студент нажмёт — код подставится сам, останется вписать ФИО."),
+    S.me?.telegram ? h("div", { class: "btns" }, h("button", { class: "btn", onclick: () => {
       haptic(); openLink(`https://t.me/share/url?url=${encodeURIComponent(g.invite_link)}&text=${encodeURIComponent(text)}`);
-    } }, icon("share", "sm"), "Отправить в беседу")),
+    } }, icon("share", "sm"), "Отправить в беседу")) : null,
     h("div", { class: "btns" },
       h("button", { class: "btn plain sm", onclick: () => navigator.clipboard?.writeText(text + "\n" + g.invite_link).then(() => toast("Приглашение скопировано", "check")) }, icon("copy", "sm"), "Копировать"),
       can("settings") ? h("button", { class: "btn plain sm", onclick: () => confirmDo("Старая ссылка перестанет работать. Продолжить?", () => safe(async () => {
         const r = await api("/group/invite", { body: {} }); Object.assign(S.me.group, r); closeSheet(); shareInvite(); toast("Новая ссылка готова", "check"); })) }, icon("refresh", "sm"), "Перевыпустить") : null), staffPart);
 }
 
-/* ---------- Статистика ---------- */
+
 async function renderStats() {
   const to = S.me.today, from = addDays(to, -S.statsDays + 1);
   const data = await api(`/stats?from=${from}&to=${to}`);
@@ -794,7 +800,12 @@ async function renderStats() {
       data.subjects.length ? [h("div", { class: "section rise" }, "По предметам"), subjRows(data.subjects)] : null,
       h("div", { class: "section rise" }, "История"),
       h("div", { class: "list rise" }, data.history.slice(0, 40).map(r => h("div", { class: "item" }, h("span", { class: "muted small num", style: "width:42px" }, short(r.date)),
-        h("div", { class: "grow ellipsis" }, r.subject), h("span", { class: "badge " + r.status }, ST[r.status])))));
+        h("div", { class: "grow ellipsis" }, r.subject), h("span", { class: "badge " + r.status }, ST[r.status]),
+        r.status === "E" ? h("button", { class: "icon-btn", style: "width:30px;height:30px;box-shadow:none;background:var(--soft)", title: "Приложить справку",
+          onclick: e => { e.stopPropagation(); confirmDo("Приложить фото или pdf справки к этой отметке?", () => safe(async () => {
+            const file = await pickFile(".jpg,.jpeg,.png,.webp,.pdf"); if (!file) return;
+            await apiUpload("/attendance/file", { lesson_id: r.lesson_id, date: r.date }, file);
+            notify(); toast("Справка прикреплена — староста её увидит", "check"); })); } }, icon("upload", "sm")) : null))));
   }
   const rated = data.stats.filter(s => s.percent != null);
   const avg = rated.length ? +(rated.reduce((a, s) => a + s.percent, 0) / rated.length).toFixed(1) : null;
@@ -826,20 +837,35 @@ async function renderTruancy() {
     can("settings") ? h("button", { class: "btn plain block rise", onclick: () => go("more", "settings") }, icon("settings", "sm"), "Изменить порог") : null);
 }
 
+function scheduleImport() {
+  const warn = h("p", { class: "muted small" }, "Шаблон скачается как .xlsx — заполните его в Excel и выберите файл ниже. ⚠️ Текущее регулярное расписание будет заменено (разовые переносы сохранятся).");
+  openSheet(h("h3", {}, "Расписание из Excel"), warn,
+    h("div", { class: "btns" }, h("button", { class: "btn ghost", onclick: act(async () => {
+      await downloadFile("/schedule/template", "raspisanie.xlsx"); toast("Шаблон скачивается", "check"); }) }, icon("download", "sm"), "Скачать шаблон")),
+    h("div", { class: "btns" }, h("button", { class: "btn", onclick: act(async () => {
+      const file = await pickFile(".xlsx,.xlsm"); if (!file) return;
+      const r = await apiUpload("/schedule/import", {}, file); notify(); closeSheet();
+      toast(`Загружено пар: ${r.count}` + (r.errors?.length ? ` · пропущено строк: ${r.errors.length}` : ""), "check"); render();
+    }) }, icon("upload", "sm"), "Выбрать файл и загрузить")));
+}
+
 function exportSheet(from, to) {
   let d1 = from || addDays(S.me.today, -29), d2 = to || S.me.today;
   const f = h("input", { type: "date", value: d1 }), t = h("input", { type: "date", value: d2 });
   const chips = h("div", { class: "chips" }, [["Неделя", 6], ["Месяц", 29], ["Семестр", null]].map(([n, days]) => h("button", { class: "chip", onclick: () => {
     t.value = S.me.today; f.value = days == null ? (S.me.group.semester_start || addDays(S.me.today, -120)) : addDays(S.me.today, -days); selTick(); } }, n)));
   openSheet(h("h3", {}, "Отчёт для деканата"),
-    h("p", { class: "muted small" }, "Excel-файл придёт в чат с ботом: лист «Сводка» с процентами и цветной «Журнал» — строки студенты, столбцы пары."),
+    h("p", { class: "muted small" }, IN_TG ? "Excel-файл придёт в чат с ботом: лист «Сводка» с процентами и цветной «Журнал» — строки студенты, столбцы пары."
+      : "Excel-файл скачается сразу: лист «Сводка» с процентами и цветной «Журнал» — строки студенты, столбцы пары."),
     chips, h("div", { class: "grid2" }, h("div", {}, h("label", { class: "f" }, "С"), f), h("div", {}, h("label", { class: "f" }, "По"), t)),
     h("div", { class: "btns" }, h("button", { class: "btn", onclick: act(async () => {
-      await api("/export", { body: { from: f.value, to: t.value } }); notify(); closeSheet(); toast("Отчёт отправлен в чат", "check");
-    }) }, icon("download", "sm"), "Прислать в чат")));
+      if (IN_TG) { await api("/export", { body: { from: f.value, to: t.value } }); toast("Отчёт отправлен в чат", "check"); }
+      else await downloadFile(`/export?from=${f.value}&to=${t.value}`, "otchet.xlsx");
+      notify(); closeSheet();
+    }) }, icon("download", "sm"), IN_TG ? "Прислать в чат" : "Скачать отчёт")));
 }
 
-/* ---------- Объявления ---------- */
+
 async function renderAnnouncements() {
   const { items } = await api("/announcements");
   mount(S.anim, pageTitle("Объявления"),
@@ -857,7 +883,7 @@ async function renderAnnouncements() {
   if (can("announce")) fab("plus", () => {
     const title = h("input", { placeholder: "Например, Собрание группы" }), text = h("textarea", { placeholder: "Что нужно донести до группы" });
     const pin = h("input", { type: "checkbox" });
-    openSheet(h("h3", {}, "Новое объявление"), h("p", { class: "muted small", style: "margin:4px 0 0" }, "Придёт каждому студенту личным сообщением от бота."),
+    openSheet(h("h3", {}, "Новое объявление"), h("p", { class: "muted small", style: "margin:4px 0 0" }, S.me?.telegram ? "Придёт каждому студенту личным сообщением от бота." : "Появится у каждого студента в ленте приложения."),
       h("label", { class: "f" }, "Заголовок"), title, h("label", { class: "f" }, "Текст"), text,
       h("label", { class: "item", style: "padding:14px 2px 0;cursor:pointer" }, h("div", { class: "grow" }, "Закрепить сверху ленты"), h("span", { class: "switch" }, pin, h("i"))),
       h("div", { class: "btns" }, h("button", { class: "btn", onclick: act(async () => {
@@ -866,7 +892,7 @@ async function renderAnnouncements() {
   });
 }
 
-/* ---------- База знаний ---------- */
+
 async function renderFiles() {
   const { files, subjects } = await api("/files");
   const by = {};
@@ -874,27 +900,40 @@ async function renderFiles() {
   const fmtSize = n => !n ? "" : n > 1e6 ? (n / 1e6).toFixed(1) + " МБ" : Math.ceil(n / 1e3) + " КБ";
   const ext = f => f.file_type === "photo" ? "IMG" : ((f.title.match(/\.(\w{2,4})$/) || [])[1] || "FILE").toUpperCase().slice(0, 4);
   mount(S.anim, pageTitle("База знаний"),
-    h("p", { class: "muted small rise", style: "margin:-6px 6px 12px" }, "Методички, конспекты и задания группы по предметам. Нажмите на файл — бот пришлёт его в чат."),
+    h("p", { class: "muted small rise", style: "margin:-6px 6px 12px" }, IN_TG ? "Методички, конспекты и задания группы по предметам. Нажмите на файл — бот пришлёт его в чат."
+      : "Методички, конспекты и задания группы по предметам. Нажмите на файл — он скачается."),
     files.length ? Object.entries(by).map(([subj, list]) => [h("div", { class: "section rise" }, subj, h("span", {}, list.length)),
-      h("div", { class: "list rise" }, list.map(f => h("div", { class: "item tap", onclick: act(async () => { await api(`/files/${f.id}/send`, { body: {} }); notify(); toast("Файл отправлен в чат", "check"); }) },
+      h("div", { class: "list rise" }, list.map(f => h("div", { class: "item tap", onclick: act(async () => {
+        if (IN_TG) { await api(`/files/${f.id}/send`, { body: {} }); toast("Файл отправлен в чат", "check"); }
+        else await downloadFile(`/files/${f.id}`, f.title);
+        notify(); }) },
         h("div", { class: "file-ic" }, ext(f)), h("div", { class: "grow" }, h("div", { class: "ellipsis", style: "font-weight:600" }, f.title),
           h("div", { class: "muted tiny" }, [f.uploader_name, fmtSize(f.size), new Date(f.created_at * 1000).toLocaleDateString("ru")].filter(Boolean).join(" · "))),
         f.can_delete ? h("button", { class: "icon-btn", style: "width:32px;height:32px;box-shadow:none;background:var(--soft)", onclick: e => { e.stopPropagation(); confirmDo("Удалить файл?", () => safe(async () => {
           await api("/files/" + f.id, { method: "DELETE" }); render(); })); } }, icon("trash", "sm")) : icon("download", "sm chev"))))])
-      : empty("book", "Пока пусто", "Загрузите первую методичку кнопкой ↑ или просто пришлите файл боту"));
+      : empty("book", "Пока пусто", IN_TG ? "Загрузите первую методичку кнопкой ↑ или просто пришлите файл боту" : "Загрузите первую методичку кнопкой ↑"));
   fab("upload", () => {
     let subj = subjects[0] || "Общее";
     const chips = h("div", { class: "chips", style: "flex-wrap:wrap" });
     const draw = () => chips.replaceChildren(...(subjects.length ? subjects : ["Общее"]).map(s => h("button", { class: "chip " + (s === subj ? "on" : ""), onclick: () => { subj = s; selTick(); draw(); } }, s)));
     draw();
-    openSheet(h("h3", {}, "Загрузить файл"), h("p", { class: "muted small" }, "Выберите предмет — затем пришлите файлы или фото в чат с ботом. Подпись к файлу станет его названием."),
-      chips, h("div", { class: "btns" }, h("button", { class: "btn", onclick: act(async () => {
-        await api("/files/upload", { body: { subject: subj } }); notify(); closeSheet(); toast("Пришлите файл в чат с ботом", "upload");
-        setTimeout(goToBotChat, 1200); }) }, icon("upload", "sm"), "Перейти к загрузке")));
+    const filePick = async () => {
+      const file = await pickFile("*/*"); if (!file) return;
+      await apiUpload("/files/upload", { subject: subj }, file);
+      notify(); closeSheet(); toast("Файл загружен в «" + subj + "»", "check"); render();
+    };
+    openSheet(h("h3", {}, "Загрузить файл"),
+      h("p", { class: "muted small" }, IN_TG ? "Выберите предмет — затем пришлите файлы или фото в чат с ботом, или загрузите прямо здесь."
+        : "Выберите предмет — затем файл с устройства. До 20 МБ."),
+      chips,
+      h("div", { class: "btns" }, h("button", { class: "btn", onclick: act(filePick) }, icon("upload", "sm"), "Выбрать файл"),
+        IN_TG ? h("button", { class: "btn ghost sm", onclick: act(async () => {
+          await api("/files/upload", { body: { subject: subj } }); notify(); closeSheet(); toast("Пришлите файл в чат с ботом", "upload");
+          setTimeout(goToBotChat, 1200); }) }, icon("share", "sm"), "Через бота") : null));
   });
 }
 
-/* ---------- Ещё ---------- */
+
 async function renderMore() {
   const g = S.me.group, m = S.me.member;
   const role = S.me.role_name;
@@ -949,7 +988,7 @@ async function renderMore() {
       x.tg_id === m.tg_id ? h("span", { class: "badge kind" }, "вы") : h("span", { class: "badge " + (x.role === "student" ? "kind" : "") }, x.role_name)))),
       h("p", { class: "muted tiny rise", style: "margin:0 8px 10px" }, "Зам. старосты — все права старосты. Куратору и студентам права настраиваются по отдельности: нажмите на участника."));
   }
-  // приложение: скачать APK (в Telegram и браузере) / выйти и сменить сервер (вне Telegram)
+
   let appInfo = {};
   try { appInfo = await api("/app-info"); } catch (_) {}
   const appRows = [
@@ -978,10 +1017,10 @@ async function renderMore() {
     link("shield", "c3", "Политики и согласие", "Согласие на обработку данных, политика, соглашение" + (S.me.consent_at ? " · согласие от " + new Date(S.me.consent_at * 1000).toLocaleDateString("ru") : ""), () => openDoc("consent"))));
   parts.push(h("div", { class: "section rise" }, "Помощь"), h("div", { class: "list rise" },
     link("help", "c1", "Как это работает", null, openGuide),
-    link("bell", "c5", "Команды бота", "/today, /week, /here, /stats" + (isStaff() ? ", /announce, /export, /import" : ""), () => openSheet(h("h3", {}, "Команды бота"),
+    S.me?.telegram ? link("bell", "c5", "Команды бота", "/today, /week, /here, /stats" + (isStaff() ? ", /announce, /export, /import" : ""), () => openSheet(h("h3", {}, "Команды бота"),
       h("div", { class: "list", style: "margin-top:12px" }, [["/today", "пары сегодня"], ["/tomorrow", "пары завтра"], ["/week", "расписание на неделю"], ["/here 1234", "отметиться кодом"], ["/stats", "посещаемость"], ["/remind on|off", "напоминания"],
         ...(isStaff() ? [["/invite", "приглашение"], ["/announce текст", "объявление"], ["/export 30", "отчёт в Excel"], ["/import", "расписание из Excel"]] : [])]
-        .map(([c, t]) => h("div", { class: "item" }, h("b", { style: "font-family:ui-monospace,monospace;font-size:13px" }, c), h("div", { class: "grow muted small", style: "text-align:right" }, t))))))),
+        .map(([c, t]) => h("div", { class: "item" }, h("b", { style: "font-family:ui-monospace,monospace;font-size:13px" }, c), h("div", { class: "grow muted small", style: "text-align:right" }, t)))))) : null),
     h("div", { class: "btns rise" }, alone
       ? h("button", { class: "btn danger", onclick: deleteGroup }, icon("trash", "sm"), "Удалить группу")
       : h("button", { class: "btn danger", onclick: leaveGroup }, icon("logout", "sm"), "Выйти из группы")),
@@ -996,7 +1035,7 @@ const ROLE_INFO = {
   student: ["Студент", "Отвечает на опросы, видит свои пропуски. Можно выдать отдельные права — например, отмечать посещаемость."],
 };
 
-/* выход из группы; если в ней больше никого нет — только удаление группы целиком */
+
 function deleteGroup() {
   confirmDo("Вы один в группе. Удалить группу «" + (S.me?.group?.name || "") + "» вместе со студентами, журналом, оценками и расписанием? Это нельзя отменить.",
     () => safe(async () => { await api("/leave", { body: { delete_group: true } }); notify(); toast("Группа удалена", "check"); S.tab = "home"; S.sub = null; boot(); }));
@@ -1083,7 +1122,7 @@ async function renderSettings() {
     }) }, "Сохранить"));
 }
 
-/* ---------- Успеваемость (ведомость за месяц) ---------- */
+
 const GRADE_LABEL = g => g == null ? "" : g === "0" ? "н/а" : g === "незач" ? "н/з" : g === "зач" ? "зач" : g === "осв" ? "осв" : g;
 const gradeCls = g => g === "5" ? "g5" : g === "4" ? "g4" : g === "3" ? "g3" : (g === "2" || g === "0" || g === "незач") ? "g2" : g ? "gz" : "g-";
 const avgColor = a => a == null ? "var(--hint)" : a >= 4.5 ? "var(--P)" : a >= 3.5 ? "var(--E)" : a >= 3 ? "var(--L)" : "var(--A)";
@@ -1123,7 +1162,10 @@ async function renderGrades() {
       s.excellent ? h("span", { class: "badge P" }, `отличников: ${s.excellent}`) : null),
     can("grades", "export") ? h("div", { class: "btns rise", style: "margin:0 0 12px" },
       can("grades") ? h("button", { class: "btn ghost sm", onclick: uploadGrades }, icon("upload", "sm"), "Загрузить") : null,
-      h("button", { class: "btn ghost sm", onclick: act(async () => { await api("/grades/export", { body: { month: data.month } }); notify(); toast("Ведомость отправлена в чат", "check"); }) }, icon("download", "sm"), "Ведомость"),
+      h("button", { class: "btn ghost sm", onclick: act(async () => {
+        if (IN_TG) { await api("/grades/export", { body: { month: data.month } }); toast("Ведомость отправлена в чат", "check"); }
+        else await downloadFile(`/grades/export?month=${data.month}`, "vedomost.xlsx");
+        notify(); }) }, icon("download", "sm"), "Ведомость"),
       can("grades") ? h("button", { class: "btn ghost sm", style: "flex:0 0 46px", onclick: () => gradesMenu(data) }, icon("more", "sm")) : null) : null,
     seg, body);
 }
@@ -1211,7 +1253,7 @@ async function openGradeCard(data, r) {
 }
 
 function sparklineAvg(values) {
-  const svg = sparkline(values.map(v => 50 + v * 10));   // 0..5 → 50..100 для общей шкалы
+  const svg = sparkline(values.map(v => 50 + v * 10));
   return svg;
 }
 
@@ -1273,10 +1315,15 @@ function renderMyGrades(data, chips) {
 
 function uploadGrades() {
   openSheet(h("h3", {}, "Загрузить ведомость"),
-    h("p", { class: "muted small" }, "Пришлите боту Excel-файл «Сведения успеваемости студентов группы … за <месяц>» — как тот, что сдаёте в учебную часть. Бот найдёт месяц, предметы с преподавателями, оценки, пропущенные часы и примечания. Студентов сопоставит по фамилии и инициалам или по № студенческого; кого не найдёт — добавит в список."),
+    h("p", { class: "muted small" }, "Выберите Excel-файл «Сведения успеваемости студентов группы … за <месяц>» — как тот, что сдаёте в учебную часть. Разберём месяц, предметы с преподавателями, оценки, пропущенные часы и примечания. Студентов сопоставим по фамилии и инициалам или по № студенческого; кого не найдём — добавим в список."),
     h("div", { class: "btns" }, h("button", { class: "btn", onclick: act(async () => {
-      await api("/grades/upload", { body: {} }); closeSheet(); toast("Пришлите файл в чат с ботом", "upload");
-      setTimeout(goToBotChat, 1200); }) }, icon("upload", "sm"), "Перейти к загрузке")));
+      const file = await pickFile(".xlsx,.xlsm"); if (!file) return;
+      const r = await apiUpload("/grades/upload", {}, file); notify(); closeSheet();
+      toast("Ведомость загружена" + (r.lines?.length ? ": " + r.lines.join(" · ") : ""), "check"); render();
+    }) }, icon("upload", "sm"), "Выбрать файл"),
+      IN_TG ? h("button", { class: "btn ghost sm", onclick: act(async () => {
+        await api("/grades/upload", { body: {} }); closeSheet(); toast("Пришлите файл в чат с ботом", "upload");
+        setTimeout(goToBotChat, 1200); }) }, icon("share", "sm"), "Через бота") : null));
 }
 
 function newGradeMonth() {
@@ -1302,7 +1349,7 @@ function gradesMenu(data) {
       await api("/grades/subjects", { body: { month: data.month, add: { name: name.value, teacher: teacher.value } } }); notify(); closeSheet(); render(); }) }, icon("plus", "sm"), "Добавить предмет")));
 }
 
-/* ---------- Как это работает ---------- */
+
 function openGuide() {
   const slides = [
     ["users", "c1", "Пригласите группу", "Отправьте в беседу готовое сообщение со ссылкой. Студент нажмёт — останется вписать ФИО."],
@@ -1327,7 +1374,7 @@ function openGuide() {
 
 
 
-/* ---------- мониторинг сервера (только главный куратор) ---------- */
+
 const fmtB = n => { if (n == null) return "—"; const u = ["Б", "КБ", "МБ", "ГБ", "ТБ"]; let i = 0; while (n >= 1024 && i < 4) { n /= 1024; i++; } return (i < 2 ? Math.round(n) : n.toFixed(1).replace(".", ",")) + " " + u[i]; };
 const fmtDur = s => { if (s == null) return "—"; const d = Math.floor(s / 86400), hh = Math.floor(s % 86400 / 3600), mm = Math.floor(s % 3600 / 60); return d ? `${d} дн ${hh} ч` : hh ? `${hh} ч ${mm} мин` : `${mm} мин`; };
 const fmtAgo = t => { const s = Math.max(0, Date.now() / 1000 - t); return s < 90 ? "только что" : s < 3600 ? Math.round(s / 60) + " мин назад" : s < 86400 ? Math.round(s / 3600) + " ч назад" : Math.round(s / 86400) + " дн назад"; };
@@ -1363,7 +1410,7 @@ async function renderServer(again = false) {
     h("div", { class: "section rise" }, "Связь"),
     h("div", { class: "list rise" },
       row("Mini App", s.site.ok == null ? "адрес не задан" : s.site.ok ? `открывается · ${s.site.ms} мс` : (s.site.status ? "ошибка " + s.site.status : (s.site.error || "не отвечает").slice(0, 80)), ok(s.site.ok)),
-      row("Telegram", s.telegram.ok ? `на связи · ${s.telegram.ms} мс` : "нет связи", ok(s.telegram.ok)),
+      row("Telegram", s.telegram.ok == null ? "не подключён" : s.telegram.ok ? `на связи · ${s.telegram.ms} мс` : "нет связи", s.telegram.ok),
       s.site.url ? row("Адрес", s.site.url.replace(/^https?:\/\//, "")) : null),
     s.services.length ? h("div", { class: "section rise" }, "Службы") : null,
     s.services.length ? h("div", { class: "list rise" }, s.services.map(x => row(x.title, (svcName[x.state] || x.state) + (x.sub && x.sub !== "running" && x.state === "active" ? " · " + (x.sub === "waiting" ? "ждёт" : x.sub) : ""),
@@ -1385,7 +1432,7 @@ async function renderServer(again = false) {
           h("div", { class: "grow", style: "min-width:0" }, h("div", { class: "small srv-err" }, e.text), h("div", { class: "muted tiny" }, fmtAgo(e.at) + " · " + e.where)))))
       : h("div", { class: "card rise muted small center" }, "С момента запуска бота ошибок не было 👌"),
     h("p", { class: "muted tiny center rise", style: "margin-top:14px" }, "Обновляется каждые 5 секунд. При проблемах бот сам напишет вам в Telegram. Кратко — команда /server")];
-  if (again) {   // тихое обновление без анимаций и прокрутки
+  if (again) {
     const y = scrollY;
     $app.classList.add("srv-quiet");
     mount(null, parts);
@@ -1398,9 +1445,9 @@ async function renderServer(again = false) {
 }
 
 
-/* ползунок «Доступ к приложению» для главного куратора */
+
 function lockSwitchRow() {
-  const sw = h("input", { type: "checkbox", checked: !S.me.lock });       // включён = приложение открыто для всех
+  const sw = h("input", { type: "checkbox", checked: !S.me.lock });
   const title = h("div", { style: "font-weight:600" }), sub = h("div", { class: "muted tiny" });
   const paint = () => {
     title.textContent = S.me.lock ? "Доступ закрыт" : "Доступ к приложению";
@@ -1423,7 +1470,7 @@ function lockSwitchRow() {
   };
   sw.onchange = () => {
     if (sw.checked) return apply(true);
-    sw.checked = true;                                                    // закрываем только после подтверждения
+    sw.checked = true;
     confirmDo("Закрыть доступ всем пользователям, кроме вас? Опросы и сводки встанут на паузу.", () => { sw.checked = false; apply(false); });
   };
   paint();
@@ -1431,7 +1478,7 @@ function lockSwitchRow() {
 }
 
 
-/* ---------- кто в сети (староста, зам, куратор) ---------- */
+
 const canSeeOnline = () => ["head", "deputy", "curator"].includes(S.me.member?.role) || S.me.super;
 const hm = ts => new Date(ts * 1000).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" });
 function seenText(p, now) {
@@ -1483,7 +1530,7 @@ function onlineDetails(p, now) {
 }
 
 
-/* ---------- документы (читаются прямо в приложении) ---------- */
+
 const DOCS = { consent: "Согласие на обработку данных", privacy: "Политика конфиденциальности", terms: "Пользовательское соглашение" };
 async function openDoc(name) {
   const body = h("div", { class: "doc-body" }, h("div", { class: "muted small center", style: "padding:30px 0" }, "Загрузка…"));
@@ -1515,7 +1562,7 @@ function revokeConsent() {
 }
 
 
-/* ---------- одноразовый код для входа по номеру студенческого ---------- */
+
 function issueLoginCode(s, recordInput) {
   if (!(s.record_no || "").trim()) return toast(recordInput?.trim() ? "Сначала сохраните номер студенческого" : "Сначала укажите номер студенческого", "alert");
   confirmDo(`Выдать ${s.full_name} одноразовый код? Если у студента уже есть пароль, по коду он задаст новый${s.auth?.code_until ? "; прежний код перестанет работать" : ""}.`, () => safe(async () => {
@@ -1535,7 +1582,7 @@ function issueLoginCode(s, recordInput) {
   }));
 }
 
-/* ---------- студент: сменить пароль ---------- */
+
 function changePassword() {
   const old = h("input", { type: "password", placeholder: "Текущий пароль", autocomplete: "current-password" });
   const nw = h("input", { type: "password", placeholder: "Не короче 8 символов", autocomplete: "new-password" });
@@ -1550,7 +1597,7 @@ function changePassword() {
 }
 
 
-/* ---------- студент вошёл через Telegram, а пароля ещё нет: подсказка установить ---------- */
+
 const PW_HINT_KEY = "kp_pw_hint_until";
 function passwordHint() {
   if (!S.me.student || S.me.has_password || S.me.no_telegram || S.me.demo) return null;

@@ -9,15 +9,12 @@ import android.os.ParcelFileDescriptor;
 import java.io.File;
 import java.io.FileNotFoundException;
 
-/**
- * Отдаёт картинку «Итоги семестра» приложениям при «Поделиться» (без библиотек androidx).
- * Адрес: content://ru.kurator.app.apk/share.png
- */
+
 public class ApkProvider extends ContentProvider {
     public static final String AUTHORITY = "ru.kurator.app.apk";
     public static final String FILE = "update.apk";
 
-    public static final String SHARE = "share.png";     // картинка «Итоги семестра» для «Поделиться»
+    public static final String SHARE = "share.png";
 
     public static Uri uri() {
         return Uri.parse("content://" + AUTHORITY + "/" + FILE);
@@ -28,7 +25,7 @@ public class ApkProvider extends ContentProvider {
     }
 
     private static String name(Uri uri) {
-        return SHARE;                       // приложение больше не устанавливает обновления само — только «Поделиться»
+        return SHARE;
     }
 
     @Override
@@ -50,7 +47,7 @@ public class ApkProvider extends ContentProvider {
 
     @Override
     public Cursor query(Uri uri, String[] p, String s, String[] a, String o) {
-        // имя и размер файла — их спрашивают мессенджеры при «Поделиться»
+
         File f = new File(getContext().getCacheDir(), name(uri));
         android.database.MatrixCursor c = new android.database.MatrixCursor(new String[]{
                 android.provider.OpenableColumns.DISPLAY_NAME, android.provider.OpenableColumns.SIZE});

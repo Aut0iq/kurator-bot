@@ -5,7 +5,6 @@ if not exist .venv (python -m venv .venv)
 call .venv\Scripts\activate
 pip install -q -r requirements.txt
 
-rem --- auto-start ngrok with the address from WEBAPP_URL (so the phone app connects by itself)
 set "URL="
 for /f "tokens=1,* delims==" %%a in ('findstr /b /c:"WEBAPP_URL" .env') do set "URL=%%b"
 set "URL=%URL: =%"

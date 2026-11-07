@@ -33,7 +33,6 @@ def _header(ws, row: int, values: list[str]) -> None:
 def build_report(group: dict, students: list[dict], records: list[dict], d1: date, d2: date) -> bytes:
     wb = Workbook()
 
-    # --- Сводка
     ws = wb.active
     ws.title = "Сводка"
     ws["A1"] = f"Посещаемость: {group['name']}"
@@ -61,7 +60,6 @@ def build_report(group: dict, students: list[dict], records: list[dict], d1: dat
     ws.freeze_panes = "C5"
     ws.cell(row=last + 2, column=2, value="Опоздание считается присутствием; уважительные причины не снижают процент; «не ответил на опрос» — пропуск.").font = Font(italic=True, color="808080")
 
-    # --- Журнал
     wj = wb.create_sheet("Журнал")
     sessions = sorted({(r["date"], r["t_start"], r["lesson_id"], r["subject"]) for r in records})
     marks = {(r["student_id"], r["date"], r["lesson_id"]): r["status"] for r in records}
@@ -92,7 +90,6 @@ def build_report(group: dict, students: list[dict], records: list[dict], d1: dat
     return buf.getvalue()
 
 
-# ---------- импорт расписания
 TEMPLATE_HEAD = ["День", "Начало", "Конец", "Предмет", "Тип", "Аудитория", "Преподаватель", "Неделя"]
 DAYS = {"пн": 0, "понедельник": 0, "вт": 1, "вторник": 1, "ср": 2, "среда": 2, "чт": 3, "четверг": 3,
         "пт": 4, "пятница": 4, "сб": 5, "суббота": 5, "вс": 6, "воскресенье": 6}

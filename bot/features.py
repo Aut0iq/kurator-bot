@@ -47,7 +47,7 @@ async def body(request) -> dict:
     try:
         data = await request.json()
         return data if isinstance(data, dict) else {}
-    except Exception:  # noqa: BLE001 — пустое тело
+    except Exception:
         return {}
 
 
@@ -73,7 +73,6 @@ def push_on(m: dict) -> bool:
     return bool(m["push"])
 
 
-# ======================================================================== серии и значки
 def student_records(db, sid: int, d1: str, d2: str) -> list[dict]:
     return db.q("SELECT a.date, a.status, a.source, l.subject, l.t_start FROM attendance a JOIN lessons l ON l.id=a.lesson_id "
                 "WHERE a.student_id=? AND a.date BETWEEN ? AND ? ORDER BY a.date, l.t_start", (sid, d1, d2))
@@ -96,7 +95,7 @@ def streaks(recs: list[dict], marks: tuple = ()) -> tuple[int, int, dict]:
     return cur, best, reached
 
 
-BADGES = [  # ключ, эмодзи, название, описание, цель
+BADGES = [
     ("streak5", "🔥", "Разогрев", "5 пар подряд без пропусков", 5),
     ("streak10", "🔥", "В ударе", "10 пар подряд без пропусков", 10),
     ("streak25", "☄️", "Неудержимый", "25 пар подряд без пропусков", 25),
@@ -114,7 +113,7 @@ def achievements(db, g: dict, st: dict, today: date) -> dict:
     d1, d2 = semester_range(g, today)
     recs = student_records(db, st["id"], d1.isoformat(), d2.isoformat())
     cur, best, reached = streaks(recs, tuple(b[-1] for b in BADGES[:4]))
-    have: dict[str, tuple[int, str | None]] = {}           # ключ → (прогресс, дата получения)
+    have: dict[str, tuple[int, str | None]] = {}
     for key, *_, need in BADGES[:4]:
         have[key] = (best, reached.get(need))
 
@@ -150,7 +149,6 @@ def achievements(db, g: dict, st: dict, today: date) -> dict:
         prog, at = have.get(key, (0, None))
         out.append({"key": key, "emoji": emoji, "title": title, "desc": desc, "earned": at is not None, "at": at,
                     "progress": min(prog, need), "need": need})
-    # следующая цель по серии — ближайший неполученный порог
     nxt = next((b for b in out[:4] if not b["earned"]), None)
     return {"streak": cur, "best": best, "badges": out, "earned": sum(1 for b in out if b["earned"]),
             "next_streak": nxt["need"] if nxt else None, "late_month": _no_late_days(recs, today)}
@@ -168,7 +166,6 @@ def _no_late_days(recs: list[dict], today: date) -> int:
     return max(0, (today - start).days + 1)
 
 
-# ======================================================================== итоги семестра («Wrapped»)
 def wrapped_student(db, g: dict, st: dict, today: date) -> dict:
     d1, d2 = semester_range(g, today)
     recs = student_records(db, st["id"], d1.isoformat(), d2.isoformat())
@@ -188,7 +185,6 @@ def wrapped_student(db, g: dict, st: dict, today: date) -> dict:
         else:
             slides.append({"emoji": "🎒", "big": str(attended), "text": f"{plural(attended, 'пару', 'пары', 'пар')} ты посетил(а)",
                            "sub": "Каждая пара — шаг вперёд", "tone": "green"})
-    # самый пунктуальный день
     by_wd = defaultdict(lambda: [0, 0])
     for r in recs:
         if r["status"] == "E":
@@ -202,7 +198,6 @@ def wrapped_student(db, g: dict, st: dict, today: date) -> dict:
         slides.append({"emoji": "⏰", "big": WD_NOM[wd].capitalize(), "text": "твой самый пунктуальный день",
                        "sub": f"{round(rate * 100)}% пар {WD_IN[wd]} — вовремя", "tone": "blue"})
         share.append(f"⏰ Самый пунктуальный день — {WD_NOM[wd]}")
-    # любимый предмет
     by_s = defaultdict(lambda: [0, 0])
     for r in recs:
         if r["status"] == "E":
@@ -215,7 +210,6 @@ def wrapped_student(db, g: dict, st: dict, today: date) -> dict:
         rate, n, s = max(cand)
         slides.append({"emoji": "💜", "big": s, "text": "предмет, который ты не пропускаешь",
                        "sub": "Ни одного пропуска!" if rate == 1 else f"{round(rate * 100)}% посещаемость", "tone": "pink"})
-    # серия
     _, best, _ = streaks(recs)
     if best >= 3:
         slides.append({"emoji": "🔥", "big": str(best), "text": f"{plural(best, 'пара', 'пары', 'пар')} подряд без пропусков",
@@ -229,7 +223,6 @@ def wrapped_student(db, g: dict, st: dict, today: date) -> dict:
     if answers >= 5:
         slides.append({"emoji": "⚡", "big": str(answers), "text": f"{plural(answers, 'ответ', 'ответа', 'ответов')} на опросы",
                        "sub": "Староста говорит спасибо", "tone": "blue"})
-    # место в группе (только если лучше половины)
     if pct is not None:
         others = []
         for s in db.students(g["id"]):
@@ -245,7 +238,6 @@ def wrapped_student(db, g: dict, st: dict, today: date) -> dict:
             if better >= 50:
                 slides.append({"emoji": "🚀", "big": f"{better}%", "text": "группы ты обошёл(ла) по посещаемости",
                                "sub": "Так держать!", "tone": "violet"})
-    # оценки
     best_subj = None
     import json
     for gm in db.grade_months(g["id"])[:4]:
@@ -331,7 +323,6 @@ def wrapped_group(db, g: dict, today: date) -> dict:
             "slides": slides, "share": share}
 
 
-# ======================================================================== статистика использования
 def usage(db) -> dict:
     now = int(time.time())
     tz = ZoneInfo(os.getenv("DEFAULT_TZ", "Asia/Vladivostok").strip() or "Asia/Vladivostok")
@@ -374,7 +365,6 @@ def usage(db) -> dict:
     }
 
 
-# ======================================================================== резервные копии
 def list_backups() -> list[dict]:
     if not BACKUP_DIR.exists():
         return []
@@ -391,7 +381,7 @@ def make_backup(db, suffix: str = "") -> Path:
     db.backup_to(str(tmp))
     tmp.replace(path)
     regular = [f for f in sorted(BACKUP_DIR.glob("kurator-*.db"), key=lambda p: p.stat().st_mtime, reverse=True)]
-    for old in regular[BACKUP_KEEP + 2:]:                 # храним 14 копий (+ пара страховочных)
+    for old in regular[BACKUP_KEEP + 2:]:
         try:
             old.unlink()
         except OSError:
@@ -399,7 +389,6 @@ def make_backup(db, suffix: str = "") -> Path:
     return path
 
 
-# ======================================================================== домашние задания
 def homework_view(db, m: dict, today: date, past: bool = False) -> dict:
     g = db.group(m["group_id"])
     st = db.student_by_tg(m["tg_id"])
@@ -425,7 +414,7 @@ def homework_view(db, m: dict, today: date, past: bool = False) -> dict:
         out = [r for r in out if r["bucket"] != "past" or not r["done"]]
     week = [r for r in out if r["bucket"] in ("today", "week") and not r["done"]]
     nxt = {}
-    if can(m, "homework"):                  # ближайшая следующая пара по каждому предмету — срок по умолчанию
+    if can(m, "homework"):
         for k in range(1, 22):
             d = today + timedelta(days=k)
             for l in polls.todays_lessons(db, g, d):
@@ -440,11 +429,10 @@ def lesson_dt(g: dict, d: date, hhmm: str) -> int:
 
 
 class FeaturesMixin:
-    # ------------------------------------------------------------------ журнал действий (хелпер)
     def audit(self, m: dict | None, action: str, text: str, students=None, gid="m") -> None:
         try:
             self.db.audit(m["group_id"] if gid == "m" and m else (None if gid == "m" else gid), m, action, text, students)
-        except Exception:  # noqa: BLE001 — журнал не должен ломать основное действие
+        except Exception:
             log.exception("audit")
 
     def _need_super(self, request) -> dict:
@@ -456,7 +444,6 @@ class FeaturesMixin:
     def _super_member(self, user: dict) -> dict:
         return self.db.member(user["id"]) or {"tg_id": user["id"], "full_name": user.get("first_name") or "Главный куратор"}
 
-    # ------------------------------------------------------------------ push-уведомления в приложении
     async def push_feed(self, request):
         """Android-приложение раз в 15 минут забирает ближайшие опросы и новые события (объявления, переносы, задания)."""
         m = self.member(request)
@@ -495,7 +482,6 @@ class FeaturesMixin:
         self.db.set_push(m["tg_id"], on)
         return ok(push=on)
 
-    # ------------------------------------------------------------------ вход по логину для старост и кураторов
     def _is_staff_role(self, m: dict | None) -> bool:
         return bool(m) and (m["role"] in ("head", "deputy", "curator") or is_super(m))
 
@@ -605,7 +591,6 @@ class FeaturesMixin:
         name = ((m or {}).get("full_name") or login).split()[0]
         return ok(token=self.db.new_app_session(a["tg_id"], name))
 
-    # ------------------------------------------------------------------ домашние задания
     async def homework_list(self, request):
         m = self.member(request)
         _, today = self.ctx(m)
@@ -694,7 +679,6 @@ class FeaturesMixin:
         new_badge = done and achievements(self.db, g, st, today)["earned"] > before
         return ok(done=done, new_badge=new_badge)
 
-    # ------------------------------------------------------------------ журнал действий
     def _can_audit(self, m: dict) -> bool:
         return m["role"] in ("head", "deputy", "curator") or is_super(m)
 
@@ -711,7 +695,6 @@ class FeaturesMixin:
             r.pop("students", None)
         return web.json_response({"items": rows, "more": len(rows) == 60})
 
-    # ------------------------------------------------------------------ резервные копии
     async def backups(self, request):
         self._need_super(request)
         return web.json_response({"items": list_backups(), "keep": BACKUP_KEEP})
@@ -722,11 +705,16 @@ class FeaturesMixin:
         self.audit(self._super_member(user), "backup", f"Резервная копия создана · {path.name}", gid=None)
         data = await body(request)
         if data.get("send"):
-            await self._send_backup(user["id"], path)
+            try:
+                await self._send_backup(user["id"], path)
+            except ValueError as e:
+                return fail(400, str(e))
         return ok(name=path.name, size=path.stat().st_size, items=list_backups())
 
     async def _send_backup(self, chat_id: int, path: Path) -> None:
         from aiogram.types import FSInputFile
+        if self.bot is None or chat_id <= 0:
+            raise ValueError("Telegram не подключён — заберите копию с сервера (папка backups)")
         if path.stat().st_size > 49 * 1024 * 1024:
             raise ValueError("Копия больше 50 МБ — Telegram не пропустит, заберите её с сервера")
         await self.bot.send_document(chat_id, FSInputFile(str(path), filename=path.name),
@@ -742,7 +730,10 @@ class FeaturesMixin:
 
     async def backup_send(self, request):
         user = self._need_super(request)
-        await self._send_backup(user["id"], self._backup_path(request.match_info["name"]))
+        try:
+            await self._send_backup(user["id"], self._backup_path(request.match_info["name"]))
+        except ValueError as e:
+            return fail(400, str(e))
         return ok()
 
     async def backup_restore(self, request):
@@ -751,7 +742,7 @@ class FeaturesMixin:
         if str(data.get("confirm") or "").strip().upper() != "ВОССТАНОВИТЬ":
             return fail(400, "Для подтверждения введите слово ВОССТАНОВИТЬ")
         src = self._backup_path(str(data.get("name") or ""))
-        safety = await asyncio.to_thread(make_backup, self.db, "-pre")          # страховка: текущее состояние
+        safety = await asyncio.to_thread(make_backup, self.db, "-pre")
         try:
             await asyncio.to_thread(self.db.restore_from, str(src))
         except ValueError as e:
@@ -762,7 +753,6 @@ class FeaturesMixin:
         self.audit(self._super_member(user), "backup", f"База восстановлена из копии {src.name} (до этого сохранена {safety.name})", gid=None)
         return ok(restored=src.name, safety=safety.name)
 
-    # ------------------------------------------------------------------ итоги семестра, серии и значки
     async def wrapped(self, request):
         m = self.member(request)
         g, today = self.ctx(m)
@@ -794,7 +784,7 @@ async def client_error(request):
     data = await body(request)
     text = str(data.get("text") or "")[:3000]
     key = text[:200]
-    if text and time.time() - _crash_seen.get(key, 0) > 600:      # одинаковые — не чаще раза в 10 минут
+    if text and time.time() - _crash_seen.get(key, 0) > 600:
         _crash_seen[key] = time.time()
         log.error("Сбой Android-приложения %s:\n%s", name, text)
     return ok()
@@ -849,7 +839,7 @@ class ParentMixin:
         if not passwords.norm_record(st.get("record_no")):
             return fail(400, "Сначала укажите номер студенческого в карточке студента")
         code = passwords.new_code()
-        expires = int(time.time()) + 3 * passwords.CODE_TTL                # родителю — 3 дня, код часто передают через ребёнка
+        expires = int(time.time()) + 3 * passwords.CODE_TTL
         self.db.set_parent_code(st["id"], passwords.hash_secret(code), expires, m["tg_id"])
         self.audit(m, "code", f"Код входа для родителя выдан · {st['full_name']}", [st["id"]])
         return ok(code=code, expires=expires, record_no=st["record_no"], has_password=bool(self.db.parent_auth(st["id"]).get("pass_hash")))
@@ -902,7 +892,7 @@ class ParentMixin:
         passwords.success(key)
         self.db.set_parent_password(target["id"], passwords.hash_secret(pw))
         uid = passwords.parent_id(target["id"])
-        self.db.x("DELETE FROM app_sessions WHERE tg_id=?", (uid,))       # старые входы родителя — выйти
+        self.db.x("DELETE FROM app_sessions WHERE tg_id=?", (uid,))
         return ok(token=self.db.new_app_session(uid, "Родитель", "parent"))
 
     async def parent_view(self, request):
@@ -934,7 +924,6 @@ def routes(a) -> list[tuple]:
     ]
 
 
-# ======================================================================== фоновые задачи
 async def homework_reminders(bot, db, g: dict, now: datetime) -> int:
     """Вечером накануне срока — напоминание тем, кто ещё не отметил задание выполненным."""
     from services import safe_send

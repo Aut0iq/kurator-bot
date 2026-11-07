@@ -1,10 +1,12 @@
 """HTTP API для Mini App + раздача статики webapp/."""
 import logging
 import os
+import secrets
 import time
 import re
 from datetime import date, timedelta
 from pathlib import Path
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from aiohttp import web
@@ -22,7 +24,7 @@ import monitor
 import polls
 import services
 from db import DB, STATUSES
-from excel import schedule_template
+from excel import parse_schedule, schedule_template
 from logic import (DATE_RE, TIME_RE, build_stats, by_subject, check_init_data, day_period, display_name, now_in,
                    parse_date, semester_range, today_in, truancy, validate_lesson, week_number)
 from perms import SUPER_IDS, ALL, DEFAULTS, FULL_ROLES, PERMS, ROLES, can, catalog, dump, is_staff, is_super, perms_of
@@ -48,7 +50,7 @@ async def error_mw(request: web.Request, handler):
     except (KeyError, TypeError):
         log.exception("bad request")
         return web.json_response({"error": "Неверные данные запроса"}, status=400)
-    except Exception:  # noqa: BLE001
+    except Exception:
         log.exception("API error")
         return web.json_response({"error": "Внутренняя ошибка сервера"}, status=500)
 
@@ -66,7 +68,7 @@ def to_min(hhmm: str) -> int:
     return h * 60 + m
 
 
-_GZ: dict[str, tuple[float, bytes, bytes, str]] = {}       # путь → (mtime, исходник, gzip, etag)
+_GZ: dict[str, tuple[float, bytes, bytes, str]] = {}
 _TYPES = {".js": "application/javascript", ".css": "text/css", ".html": "text/html", ".svg": "image/svg+xml",
           ".json": "application/json", ".webp": "image/webp", ".png": "image/png", ".ico": "image/x-icon", ".txt": "text/plain"}
 
@@ -136,15 +138,14 @@ def app_version(request) -> tuple[bool, int, str]:
     if not m:
         return False, 0, ""
     code = re.search(r"code (\d+)", ua)
-    return True, int(code.group(1)) if code else 0, m.group(1)     # старые версии не сообщали код → 0
+    return True, int(code.group(1)) if code else 0, m.group(1)
 
 
 class Api(FeaturesMixin, features.ParentMixin):
-    def __init__(self, db: DB, bot: Bot, token: str, default_tz: str, bot_username: str):
+    def __init__(self, db: DB, bot: Bot | None, token: str, default_tz: str, bot_username: str):
         self.db, self.bot, self.token, self.default_tz = db, bot, token, default_tz
         self.bot_username = bot_username
 
-    # ---------- авторизация
     def user(self, request: web.Request) -> dict:
         """Пользователь запроса; если главный куратор закрыл доступ — пускаем только его."""
         u = self.auth_user(request)
@@ -164,11 +165,13 @@ class Api(FeaturesMixin, features.ParentMixin):
     def auth_user(self, request: web.Request) -> dict:
         """Пользователь из Telegram Mini App (подпись initData) или из приложения (токен сессии)."""
         init = request.headers.get("X-Init-Data", "")
-        if init:
+        if init and self.token:
             user = check_init_data(init, self.token)
             if user and "id" in user:
                 return user
         auth = request.headers.get("Authorization", "")
+        if not auth.startswith("Bearer ") and request.method == "GET" and request.query.get("token"):
+            auth = "Bearer " + request.query["token"].strip()
         if auth.startswith("Bearer ") and len(auth) > 20:
             s = self.db.app_session(auth[7:].strip())
             if s:
@@ -176,8 +179,9 @@ class Api(FeaturesMixin, features.ParentMixin):
                         "username": s["username"], "via": "app"}
         raise web.HTTPUnauthorized(reason="Войдите через Telegram")
 
-    # ---------- вход в приложение (Android / браузер)
     async def applogin_start(self, request):
+        if not self.bot:
+            return fail(400, "Вход через Telegram не подключён — войдите по логину и паролю")
         code = self.db.app_login_start()
         return ok(code=code, bot=self.bot_username, link=f"https://t.me/{self.bot_username}?start=applogin_{code}",
                   tg_link=f"tg://resolve?domain={self.bot_username}&start=applogin_{code}")
@@ -198,13 +202,12 @@ class Api(FeaturesMixin, features.ParentMixin):
 
     async def app_info(self, request):
         apk = apk_path()
-        info = {"apk": apk.exists()}
+        info = {"apk": apk.exists(), "telegram": bool(self.bot)}
         if apk.exists():
             meta = apk_meta()
             info.update(size=apk.stat().st_size, updated=int(apk.stat().st_mtime), url=f"/app.apk?v={meta.get('version_code', int(apk.stat().st_mtime))}",
                         version_code=meta.get("version_code"), version_name=meta.get("version_name"),
                         min_code=meta.get("min_code"), notes=meta.get("notes") or [])
-        # соцсети для стартовой страницы: SOCIAL_TELEGRAM=https://t.me/… SOCIAL_VK=… SOCIAL_YOUTUBE=… SOCIAL_RUTUBE=… SOCIAL_TIKTOK=… в .env
         info["social"] = [{"key": k, "url": v} for k in ("telegram", "vk", "youtube", "rutube", "tiktok", "dzen", "site")
                           if (v := os.getenv("SOCIAL_" + k.upper(), "").strip()).startswith(("https://", "http://", "tg://"))]
         is_app, code, name = app_version(request)
@@ -230,21 +233,29 @@ class Api(FeaturesMixin, features.ParentMixin):
             raise web.HTTPForbidden(reason="Недостаточно прав")
         return m
 
-    def invite_link(self, g: dict) -> str:
-        return f"https://t.me/{self.bot_username}?start=join_{g['invite_code']}"
+    def invite_link(self, g: dict, request: web.Request) -> str:
+        if self.bot:
+            return f"https://t.me/{self.bot_username}?start=join_{g['invite_code']}"
+        return f"{self._site(request)}/?join={g['invite_code']}"
 
-    def staff_link(self, g: dict) -> str:
-        return f"https://t.me/{self.bot_username}?start=staff_{g['staff_code']}"
+    def staff_link(self, g: dict, request: web.Request) -> str:
+        if self.bot:
+            return f"https://t.me/{self.bot_username}?start=staff_{g['staff_code']}"
+        return f"{self._site(request)}/?staff={g['staff_code']}"
+
+    @staticmethod
+    def _site(request: web.Request) -> str:
+        proto = request.headers.get("X-Forwarded-Proto") or request.scheme
+        return os.getenv("WEBAPP_URL", "").rstrip("/") or f"{proto}://{request.host}"
 
     def ctx(self, m: dict):
         g = self.db.group(m["group_id"])
         return g, today_in(g["tz"])
 
-    # ---------- профиль
     async def me(self, request):
         user = self.user(request)
         consent = self.db.consent_of(user["id"]) == legal.VERSION
-        if passwords.is_parent(user["id"]):                    # родитель: только просмотр данных ребёнка
+        if passwords.is_parent(user["id"]):
             st = self.db.q1("SELECT * FROM students WHERE id=?", (passwords.parent_student(user["id"]),))
             g = self.db.group(st["group_id"]) if st else None
             return web.json_response({"user": user, "member": None, "consent": consent, "bot": self.bot_username,
@@ -255,11 +266,11 @@ class Api(FeaturesMixin, features.ParentMixin):
         g, today = self.ctx(m)
         my = perms_of(m)
         group = dict(g)
-        group["invite_link"] = self.invite_link(g) if "invite" in my else None
+        group["invite_link"] = self.invite_link(g, request) if "invite" in my else None
         if "invite" not in my:
             group.pop("invite_code", None)
         if "roles" in my:
-            group["staff_link"] = self.staff_link(g)
+            group["staff_link"] = self.staff_link(g, request)
         else:
             group.pop("staff_code", None)
         students = self.db.students(g["id"])
@@ -267,7 +278,8 @@ class Api(FeaturesMixin, features.ParentMixin):
             "user": user, "member": m, "student": self.db.student_by_tg(user["id"]), "group": group,
             "perms": sorted(my), "role_name": ("Главный куратор" if is_super(m) else ROLES.get(m["role"], m["role"])),
             "super": is_super(m), "via": user.get("via", "telegram"), "consent": consent, "lock": self.db.lock() if user["id"] in SUPER_IDS else None, "demo": demo.is_demo(user["id"]),
-            "no_telegram": passwords.is_synthetic(user["id"]),
+            "no_telegram": user["id"] < 0,
+            "telegram": bool(self.bot),
             "has_password": bool(self.db.student_auth((self.db.student_by_tg(user["id"]) or {}).get("id") or 0).get("pass_hash")), "consent_at": (self.db.q1("SELECT at FROM consents WHERE tg_id=?", (user["id"],)) or {}).get("at"),
             "push": push_on(m),
             "staff_login": ({"login": (sa := self.db.staff_auth(user["id"])).get("login"), "has_password": bool(sa.get("pass_hash"))}
@@ -295,7 +307,6 @@ class Api(FeaturesMixin, features.ParentMixin):
         if not name:
             return fail(400, "Введите название группы")
         role = "curator" if data.get("role") == "curator" else "head"
-        # куратор, создавший группу, получает все права (иначе некому будет её настроить)
         g = self.db.create_group(name, self.default_tz, user["id"], display_name(user), user.get("username"),
                                  role, dump(ALL) if role == "curator" else None)
         return ok(group=g)
@@ -328,7 +339,6 @@ class Api(FeaturesMixin, features.ParentMixin):
             return ok(choose=res["choose"])
         return ok(student_id=res["id"], matched=res["matched"], name=res["name"])
 
-    # ---------- вход по номеру студенческого и паролю
     async def pw_login(self, request):
         data = await request.json()
         ident = str(data.get("login") or data.get("record_no") or "").strip()
@@ -338,7 +348,7 @@ class Api(FeaturesMixin, features.ParentMixin):
         wait = passwords.locked("pw:" + rec)
         if wait:
             return fail(429, f"Слишком много попыток. Подождите {max(1, wait // 60)} мин.")
-        token = self._staff_login_try(ident.lower(), pw)            # логин старосты / куратора
+        token = self._staff_login_try(ident.lower(), pw)
         if token:
             passwords.success("pw:" + rec)
             return ok(token=token)
@@ -365,7 +375,7 @@ class Api(FeaturesMixin, features.ParentMixin):
         wait = passwords.locked("code:" + rec)
         if wait:
             return fail(429, f"Слишком много попыток. Подождите {max(1, wait // 60)} мин.")
-        staff = self._staff_code_set(ident.lower(), code, pw)        # логин старосты / куратора
+        staff = self._staff_code_set(ident.lower(), code, pw)
         if staff is not None:
             if staff.status == 401:
                 passwords.fail("code:" + rec)
@@ -391,7 +401,7 @@ class Api(FeaturesMixin, features.ParentMixin):
         passwords.success("code:" + rec)
         self.db.set_password(target["id"], passwords.hash_secret(pw))
         uid = self.db.account_for_student(target)
-        self.db.x("DELETE FROM app_sessions WHERE tg_id=? AND device='password'", (uid,))   # старые входы по паролю — выйти
+        self.db.x("DELETE FROM app_sessions WHERE tg_id=? AND device='password'", (uid,))
         return ok(token=self.db.new_app_session(uid, target["full_name"].split()[1] if len(target["full_name"].split()) > 1 else target["full_name"]))
 
     async def login_code(self, request):
@@ -418,7 +428,6 @@ class Api(FeaturesMixin, features.ParentMixin):
         data = await request.json()
         a = self.db.student_auth(st["id"])
         if not a.get("pass_hash"):
-            # пароля ещё нет: вошедший через Telegram студент уже подтвердил, кто он, — код от старосты не нужен
             if passwords.is_synthetic(user["id"]):
                 raise web.HTTPForbidden(reason="Получите код у старосты или куратора")
             if not passwords.norm_record(st.get("record_no")):
@@ -487,7 +496,7 @@ class Api(FeaturesMixin, features.ParentMixin):
         except Exception:
             data = {}
         others = [x for x in self.db.members(m["group_id"]) if x["tg_id"] != m["tg_id"]]
-        if not others:                                    # в группе никого больше нет
+        if not others:
             if data.get("delete_group"):
                 self.db.delete_group(m["group_id"])
                 return ok(deleted=True)
@@ -503,7 +512,6 @@ class Api(FeaturesMixin, features.ParentMixin):
         self.db.set_reminders(m["tg_id"], bool((await request.json()).get("on")))
         return ok()
 
-    # ---------- группа
     async def update_group(self, request):
         m = self.member(request, "settings")
         data = await request.json()
@@ -524,9 +532,10 @@ class Api(FeaturesMixin, features.ParentMixin):
         if "tz" in data:
             ZoneInfo(str(data["tz"]))
             f["tz"] = str(data["tz"])
-        if f.get("semester_start") and f.get("semester_end") and f["semester_start"] > f["semester_end"]:
-            return fail(400, "Начало семестра позже конца")
         g0 = self.db.group(m["group_id"])
+        s_start, s_end = f.get("semester_start", g0["semester_start"]), f.get("semester_end", g0["semester_end"])
+        if s_start and s_end and s_start > s_end:
+            return fail(400, "Начало семестра позже конца")
         self.db.update_group(m["group_id"], **f)
         names = {"name": "название", "semester_start": "начало семестра", "semester_end": "конец семестра", "remind_minutes": "время опроса",
                  "summary_minutes": "время сводки", "truancy_limit": "порог прогулов", "polls_enabled": "опросы", "tz": "часовой пояс"}
@@ -540,10 +549,9 @@ class Api(FeaturesMixin, features.ParentMixin):
         m = self.member(request, "roles" if staff else "settings")
         self.db.regenerate_invite(m["group_id"], staff)
         g = self.db.group(m["group_id"])
-        return ok(invite_link=self.invite_link(g), invite_code=g["invite_code"],
-                  staff_link=self.staff_link(g) if can(m, "roles") else None)
+        return ok(invite_link=self.invite_link(g, request), invite_code=g["invite_code"],
+                  staff_link=self.staff_link(g, request) if can(m, "roles") else None)
 
-    # ---------- участники, роли и права
     async def members(self, request):
         m = self.member(request, "roles")
         rows = self.db.members(m["group_id"])
@@ -612,7 +620,6 @@ class Api(FeaturesMixin, features.ParentMixin):
         self.audit(m, "delete", f"Исключён из группы · {who}")
         return ok()
 
-    # ---------- студенты
     async def students(self, request):
         m = self.member(request)
         rows = self.db.students(m["group_id"], include_archived=request.query.get("archived") == "1")
@@ -620,7 +627,6 @@ class Api(FeaturesMixin, features.ParentMixin):
             rows = [{"id": s["id"], "full_name": s["full_name"], "linked": bool(s["tg_id"]),
                      "me": s["tg_id"] == m["tg_id"]} for s in rows]
             return web.json_response({"students": rows})
-        # отметка «есть в последней ведомости» — чтобы видеть лишних
         months = self.db.grade_months(m["group_id"])
         in_grades = set()
         if months:
@@ -746,7 +752,6 @@ class Api(FeaturesMixin, features.ParentMixin):
             return fail(400, "Этот студент уже привязан к другому аккаунту")
         return ok()
 
-    # ---------- расписание
     async def lessons(self, request):
         m = self.member(request)
         g, today = self.ctx(m)
@@ -755,7 +760,6 @@ class Api(FeaturesMixin, features.ParentMixin):
         return web.json_response({"lessons": rows, "periods": self.db.periods(g["id"]), "changes": changes,
                                   "moved_in": list(self.db.moved_in(g["id"]))})
 
-    # ---------- переносы и отмены
     async def lesson_change(self, request):
         m = self.member(request, "changes", "schedule")
         g, today = self.ctx(m)
@@ -804,7 +808,6 @@ class Api(FeaturesMixin, features.ParentMixin):
         sent = await services.notify_change(self.bot, self.db, g["id"], lesson, c, m["tg_id"], cancelled=True) if notify and lesson else 0
         return ok(sent=sent)
 
-    # ---------- кто в сети (староста, зам, куратор)
     async def ping(self, request):
         self.user(request)
         return ok()
@@ -853,12 +856,34 @@ class Api(FeaturesMixin, features.ParentMixin):
     async def schedule_template(self, request):
         m = self.member(request, "schedule")
         data = schedule_template(self.db.lessons(m["group_id"], include_oneoff=False))
+        if request.method == "GET" or not self.bot or m["tg_id"] <= 0:
+            return self._xlsx(data, "raspisanie.xlsx")
         set_pending(m["tg_id"], "import")
         await self.bot.send_document(
             m["tg_id"], BufferedInputFile(data, filename="raspisanie.xlsx"),
             caption="🗓 Шаблон расписания. Заполните его в Excel (или Google Таблицах) и пришлите файл "
                     "сюда в ответ — я загружу пары.\n\n⚠️ Текущее регулярное расписание будет заменено.")
         return ok()
+
+    async def schedule_import(self, request):
+        """Импорт расписания из .xlsx прямо из приложения/браузера (та же логика, что у бота)."""
+        m = self.member(request, "schedule")
+        fields, fname, data = await self._read_upload(request)
+        if not data or not (fname or "").lower().endswith((".xlsx", ".xlsm")):
+            return fail(400, "Нужен файл .xlsx по шаблону («Скачать шаблон»)")
+        try:
+            lessons, errors = parse_schedule(data)
+        except Exception:
+            return fail(400, "Не получилось прочитать файл. Проверьте, что это .xlsx по шаблону.")
+        if not lessons:
+            return fail(400, "В файле не нашлось ни одной пары: " + "; ".join(errors[:5]))
+        gid = m["group_id"]
+        for old in self.db.lessons(gid, include_oneoff=False):
+            self.db.delete_lesson(gid, old["id"])
+        for l in lessons:
+            self.db.save_lesson(gid, l)
+        self.audit(m, "schedule", f"Расписание · импорт из Excel: {len(lessons)} пар (старое удалено)")
+        return ok(count=len(lessons), errors=errors[:10])
 
     async def periods(self, request):
         m = self.member(request)
@@ -938,7 +963,6 @@ class Api(FeaturesMixin, features.ParentMixin):
                 resp["my_status"] = self.db.marks(cur["id"], ds).get(st["id"]) if st else None
         return web.json_response(resp)
 
-    # ---------- журнал
     async def journal_month(self, request):
         m = self.member(request, "journal", "attendance")
         g, today = self.ctx(m)
@@ -965,7 +989,6 @@ class Api(FeaturesMixin, features.ParentMixin):
         d = parse_date(request.query.get("date"), today)
         ds = d.isoformat()
         items = self.lessons_on(g, d)
-        # пары, у которых есть отметки, но которых нет в расписании (удалены/перенесены)
         extra_ids = {r["lesson_id"] for r in self.db.attendance_range(g["id"], ds, ds)} - {l["id"] for l in items}
         for lid in extra_ids:
             l = self.db.lesson(g["id"], lid)
@@ -973,13 +996,55 @@ class Api(FeaturesMixin, features.ParentMixin):
                 items.append(l)
         marks = {}
         for l in items:
-            marks[l["id"]] = {sid: {"status": r["status"], "reason": r["reason"], "has_file": bool(r["file_id"]),
+            marks[l["id"]] = {sid: {"status": r["status"], "reason": r["reason"],
+                                    "has_file": bool(r["file_id"] or r.get("file_path")),
                                     "source": r["source"]} for sid, r in self.db.marks_full(l["id"], ds).items()}
         return web.json_response({"date": ds, "lessons": sorted(items, key=lambda l: l["t_start"]),
                                   "students": [{"id": s["id"], "full_name": s["full_name"]} for s in self.db.students(g["id"])],
                                   "marks": marks, "period": day_period(self.db.periods(g["id"]), d)})
 
-    # ---------- посещаемость
+    MAX_UPLOAD = 20 * 1024 * 1024
+    XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+    async def _read_upload(self, request) -> tuple[dict, str | None, bytes | None]:
+        """multipart-запрос → (текстовые поля, имя файла, байты). Файл больше 20 МБ отклоняем."""
+        fields: dict[str, str] = {}
+        fname, data = None, None
+        async for part in await request.multipart():
+            if part.filename:
+                fname, buf = part.filename, bytearray()
+                while chunk := await part.read_chunk(1 << 16):
+                    buf += chunk
+                    if len(buf) > self.MAX_UPLOAD:
+                        raise ValueError("Файл больше 20 МБ")
+                data = bytes(buf)
+            else:
+                fields[part.name] = (await part.read(decode=True)).decode("utf-8", "replace")[:500]
+        return fields, fname, data
+
+    def _save_upload(self, fname: str, data: bytes) -> str:
+        name = secrets.token_hex(10) + Path(fname).suffix[:12]
+        (self.db.files_dir / name).write_bytes(data)
+        return name
+
+    def _disk_file(self, path: str | None) -> Path | None:
+        """Файл, лежащий в data/files/ — только строго внутри папки (никаких ../)."""
+        if not path:
+            return None
+        p = (self.db.files_dir / path).resolve()
+        return p if p.parent == self.db.files_dir.resolve() and p.is_file() else None
+
+    async def _fetch_file(self, file_id: str | None) -> Path | None:
+        """Старый файл, оставшийся только в Telegram: скачиваем на диск (ленивая миграция)."""
+        if not file_id or not self.bot:
+            return None
+        name = await services.download_to(self.bot, file_id, self.db.files_dir)
+        return self.db.files_dir / name if name else None
+
+    def _xlsx(self, data: bytes, name: str) -> web.Response:
+        return web.Response(body=data, headers={"Content-Type": self.XLSX_MIME,
+                                                "Content-Disposition": "attachment; filename*=UTF-8''" + quote(name)})
+
     async def get_attendance(self, request):
         m = self.member(request, "attendance", "journal")
         lid = int(request.query["lesson_id"])
@@ -1025,18 +1090,43 @@ class Api(FeaturesMixin, features.ParentMixin):
 
     async def attendance_file(self, request):
         m = self.member(request, "journal", "attendance")
-        data = await request.json()
-        lid = int(data["lesson_id"])
+        if request.content_type.startswith("multipart/"):
+            st = self.db.student_by_tg(m["tg_id"])
+            if not st:
+                return fail(403, "Сначала укажите своё ФИО в приложении")
+            fields, fname, data = await self._read_upload(request)
+            if not data:
+                return fail(400, "Файл не получен")
+            if not fname or Path(fname).suffix.lower() not in (".jpg", ".jpeg", ".png", ".webp", ".pdf"):
+                return fail(400, "Нужен файл справки: фото (jpg, png, webp) или pdf")
+            lid = int(fields["lesson_id"]); ds = parse_date(fields.get("date")).isoformat()
+            if not self.db.lesson(m["group_id"], lid):
+                return fail(404, "Пара не найдена")
+            r = self.db.mark(lid, ds, st["id"])
+            if not r or r["status"] != "E":
+                return fail(400, "Справка нужна только к отметке «уважительная причина»")
+            self.db.set_reason(lid, ds, st["id"], None, None, file_path=self._save_upload(fname, data))
+            return ok()
+        src = request.query if request.method == "GET" else await request.json()
+        lid, ds, sid = int(src["lesson_id"]), parse_date(src["date"]).isoformat(), int(src["student_id"])
         if not self.db.lesson(m["group_id"], lid):
             return fail(404, "Пара не найдена")
-        r = self.db.mark(lid, parse_date(data["date"]).isoformat(), int(data["student_id"]))
-        if not r or not r["file_id"]:
+        r = self.db.mark(lid, ds, sid)
+        if not r or not (r["file_id"] or r.get("file_path")):
             return fail(404, "Файл не найден")
-        st = self.db.student(m["group_id"], int(data["student_id"]))
+        if request.method == "GET" or not self.bot or m["tg_id"] <= 0:
+            p = self._disk_file(r.get("file_path")) or await self._fetch_file(r["file_id"])
+            if p is None:
+                return fail(404, "Справка хранилась в Telegram — без подключённого бота недоступна")
+            if not r.get("file_path"):
+                self.db.x("UPDATE attendance SET file_path=? WHERE lesson_id=? AND date=? AND student_id=?",
+                          (p.name, lid, ds, sid))
+            return web.FileResponse(p)
+        st = self.db.student(m["group_id"], sid)
         cap = f"📄 Справка: {st['full_name'] if st else ''}" + (f"\n{r['reason']}" if r["reason"] else "")
         try:
             await self.bot.send_photo(m["tg_id"], r["file_id"], caption=cap[:1000])
-        except Exception:  # noqa: BLE001
+        except Exception:
             await self.bot.send_document(m["tg_id"], r["file_id"], caption=cap[:1000])
         return ok()
 
@@ -1049,7 +1139,6 @@ class Api(FeaturesMixin, features.ParentMixin):
         base = {"from": d1.isoformat(), "to": d2.isoformat()}
         if can(m, "journal"):
             stats = build_stats(self.db.students(g["id"]), recs)
-            # динамика по дням: доля присутствующих
             daily: dict[str, list[int]] = {}
             for r in recs:
                 a = daily.setdefault(r["date"], [0, 0])
@@ -1063,7 +1152,7 @@ class Api(FeaturesMixin, features.ParentMixin):
             return web.json_response({**base, "stats": [], "history": [], "subjects": []})
         mine = [r for r in recs if r["student_id"] == st["id"]]
         return web.json_response({**base, "stats": build_stats([st], mine), "subjects": by_subject(mine),
-                                  "history": [{k: r[k] for k in ("date", "t_start", "subject", "status")}
+                                  "history": [{k: r[k] for k in ("date", "t_start", "subject", "status", "lesson_id")}
                                               for r in reversed(mine)]})
 
     async def truancy(self, request):
@@ -1077,14 +1166,16 @@ class Api(FeaturesMixin, features.ParentMixin):
 
     async def export(self, request):
         m = self.member(request, "export")
-        data = await request.json()
-        d1, d2 = parse_date(data.get("from")), parse_date(data.get("to"))
+        src = request.query if request.method == "GET" else await request.json()
+        d1, d2 = parse_date(src.get("from")), parse_date(src.get("to"))
         if d1 > d2:
             d1, d2 = d2, d1
+        if request.method == "GET" or not self.bot or m["tg_id"] <= 0:
+            data, name = services.report_xlsx(self.db, m["group_id"], d1, d2)
+            return self._xlsx(data, name)
         await services.send_report(self.bot, self.db, m["group_id"], m["tg_id"], d1, d2)
         return ok()
 
-    # ---------- самоотметка по коду
     async def open_checkin(self, request):
         m = self.member(request, "attendance")
         data = await request.json()
@@ -1106,7 +1197,6 @@ class Api(FeaturesMixin, features.ParentMixin):
             return fail(400, result)
         return ok(subject=result["subject"])
 
-    # ---------- ответ на опрос из приложения
     async def poll_answer(self, request):
         m = self.member(request)
         data = await request.json()
@@ -1115,7 +1205,6 @@ class Api(FeaturesMixin, features.ParentMixin):
             return fail(400, res)
         return ok()
 
-    # ---------- объявления
     async def announce(self, request):
         m = self.member(request, "announce")
         data = await request.json()
@@ -1146,21 +1235,38 @@ class Api(FeaturesMixin, features.ParentMixin):
             self.audit(m, "delete", f"Удалено объявление · {a['title'] or a['text'][:80]}")
         return ok()
 
-    # ---------- база знаний
     async def files(self, request):
         m = self.member(request)
         rows = self.db.files(m["group_id"])
         for r in rows:
             r.pop("file_id", None)
+            r.pop("path", None)
             r["can_delete"] = can(m, "files") or r["uploader"] == m["tg_id"]
         return web.json_response({"files": rows, "subjects": self.db.subjects(m["group_id"])})
+
+    async def get_file(self, request):
+        """Скачивание файла базы знаний по HTTP (приложение/браузер без Telegram)."""
+        m = self.member(request)
+        f = self.db.file(m["group_id"], int(request.match_info["fid"]))
+        if not f:
+            return fail(404, "Файл не найден")
+        p = self._disk_file(f.get("path")) or await self._fetch_file(f["file_id"])
+        if p is None:
+            return fail(404, "Файл хранился в Telegram — без подключённого бота недоступен")
+        if not f.get("path"):
+            self.db.x("UPDATE files SET path=? WHERE id=?", (p.name, f["id"]))
+        return web.FileResponse(p, headers={"Content-Disposition":
+                                            "attachment; filename*=UTF-8''" + quote(f["title"])})
 
     async def send_file(self, request):
         m = self.member(request)
         f = self.db.file(m["group_id"], int(request.match_info["fid"]))
         if not f:
             return fail(404, "Файл не найден")
-        await services.send_file(self.bot, m["tg_id"], f)
+        if not self.bot or m["tg_id"] <= 0:
+            return await self.get_file(request)
+        if not await services.send_file(self.bot, m["tg_id"], f, self.db.files_dir):
+            return await self.get_file(request)
         return ok()
 
     async def delete_file(self, request):
@@ -1171,10 +1277,26 @@ class Api(FeaturesMixin, features.ParentMixin):
         if not can(m, "files") and f["uploader"] != m["tg_id"]:
             return fail(403, "Удалить может автор или староста")
         self.db.delete_file(m["group_id"], f["id"])
+        p = self._disk_file(f.get("path"))
+        if p:
+            p.unlink(missing_ok=True)
         return ok()
 
     async def upload_file(self, request):
         m = self.member(request)
+        if request.content_type.startswith("multipart/"):
+            fields, fname, data = await self._read_upload(request)
+            if not fname or data is None:
+                return fail(400, "Файл не получен")
+            subject = str(fields.get("subject") or "").strip()[:120] or "Общее"
+            title = str(fields.get("title") or fname).strip()[:200]
+            ftype = "photo" if Path(fname).suffix.lower() in (".jpg", ".jpeg", ".png", ".webp", ".gif") else "document"
+            fid = self.db.add_file(m["group_id"], subject, title, "", ftype, len(data), m["tg_id"],
+                                   m["full_name"] or display_name(self.user(request)),
+                                   path=self._save_upload(fname, data))
+            return ok(id=fid)
+        if not self.bot or m["tg_id"] <= 0:
+            return fail(400, "Telegram не подключён — загрузите файл кнопкой в приложении")
         subject = str((await request.json()).get("subject") or "").strip()[:120]
         if not subject:
             return fail(400, "Выберите предмет")
@@ -1184,7 +1306,6 @@ class Api(FeaturesMixin, features.ParentMixin):
                                                 "Подпись к файлу станет его названием.")
         return ok()
 
-    # ---------- успеваемость
     def _month(self, value) -> str:
         v = str(value or "").strip()
         if not re.match(r"^20\d\d-(0[1-9]|1[0-2])$", v):
@@ -1339,6 +1460,28 @@ class Api(FeaturesMixin, features.ParentMixin):
 
     async def grades_upload(self, request):
         m = self.member(request, "grades")
+        if request.content_type.startswith("multipart/"):
+            fields, fname, data = await self._read_upload(request)
+            if not data:
+                return fail(400, "Файл не получен")
+            try:
+                sheets = grades.parse_workbook(data)
+            except Exception:
+                return fail(400, "Не получилось прочитать файл — нужен .xlsx «Сведения успеваемости…»")
+            if not sheets:
+                return fail(400, "Не похоже на ведомость: нужен столбец «Фамилия, имя и отчество», "
+                                 "под ним — дисциплины, в шапке — месяц")
+            lines = []
+            for sh in sheets:
+                if not sh["month"]:
+                    lines.append(f"⚠️ Лист «{sh['sheet']}»: не нашёл месяц в шапке")
+                    continue
+                res = grades.import_parsed(self.db, m["group_id"], sh, m["tg_id"])
+                self.audit(m, "grades", f"Ведомость · импорт {res['title']}: {res['students']} студентов")
+                lines.append(f"{res['title']}: {res['students']} студентов, {res['subjects']} предметов")
+            return ok(lines=lines)
+        if not self.bot or m["tg_id"] <= 0:
+            return fail(400, "Telegram не подключён — загрузите файл кнопкой в приложении")
         set_pending(m["tg_id"], "grades")
         await self.bot.send_message(m["tg_id"], "📒 Пришлите сюда файл ведомости успеваемости (.xlsx) — "
                                                 "«Сведения успеваемости студентов группы … за месяц». "
@@ -1347,11 +1490,13 @@ class Api(FeaturesMixin, features.ParentMixin):
 
     async def grades_export(self, request):
         m = self.member(request, "grades", "export")
-        month = self._month((await request.json()).get("month"))
+        month = self._month((request.query if request.method == "GET" else await request.json()).get("month"))
+        if request.method == "GET" or not self.bot or m["tg_id"] <= 0:
+            data, name = services.grades_xlsx(self.db, m["group_id"], month)
+            return self._xlsx(data, name)
         await services.send_grades(self.bot, self.db, m["group_id"], m["tg_id"], month)
         return ok()
 
-    # ---------- статика (сжатие gzip + долгий кэш для файлов с ?v=…)
     async def index(self, request):
         return static_response(request, WEBAPP_DIR / "index.html", "no-cache")
 
@@ -1360,7 +1505,6 @@ class Api(FeaturesMixin, features.ParentMixin):
         p = (WEBAPP_DIR / rel).resolve()
         if WEBAPP_DIR.resolve() not in p.parents or not p.is_file():
             raise web.HTTPNotFound()
-        # версия в адресе (?v=28) — файл не изменится, браузер и приложение берут его из кэша без запроса
         cache = "public, max-age=31536000, immutable" if request.query.get("v") else "public, max-age=300"
         return static_response(request, p, cache)
 
@@ -1369,11 +1513,18 @@ def do_checkin(db: DB, member: dict, code: str) -> dict | str:
     st = db.student_by_tg(member["tg_id"])
     if not st:
         return "Сначала укажите своё ФИО в приложении"
+    key = f"checkin:{member['tg_id']}"
+    wait = passwords.locked(key)
+    if wait:
+        return f"Много неверных попыток — подождите {wait // 60 + 1} мин"
     c = db.find_checkin(member["group_id"], code)
     if not c:
+        passwords.fail(key)
         return "Код неверный или уже истёк"
+    passwords.success(key)
     lesson = db.lesson(member["group_id"], c["lesson_id"])
-    if db.marks(c["lesson_id"], c["date"]).get(st["id"]) != "P":
+    cur = db.mark(c["lesson_id"], c["date"], st["id"])
+    if not cur or (cur["source"] not in ("manual", "code") and cur["status"] != "P"):
         db.set_marks(c["lesson_id"], c["date"], {st["id"]: "P"}, member["tg_id"], source="code")
     return lesson
 
@@ -1397,7 +1548,7 @@ def do_poll_answer(db: DB, member: dict, lid: int, d: str, status: str | None, a
 
 def build_app(db: DB, bot: Bot, token: str, default_tz: str, bot_username: str) -> web.Application:
     a = Api(db, bot, token, default_tz, bot_username)
-    app = web.Application(middlewares=[error_mw], client_max_size=1024 * 256)
+    app = web.Application(middlewares=[error_mw], client_max_size=25 * 1024 * 1024)
     r = app.router
     r.add_get("/", a.index)
     r.add_get("/app.apk", a.apk)
@@ -1420,14 +1571,16 @@ def build_app(db: DB, bot: Bot, token: str, default_tz: str, bot_username: str) 
         ("GET", "/api/lessons", a.lessons), ("POST", "/api/lessons/{lid}/change", a.lesson_change),
         ("DELETE", "/api/changes/{cid}", a.delete_change), ("GET", "/api/ping", a.ping), ("GET", "/api/online", a.online), ("POST", "/api/lessons", a.save_lesson),
         ("PUT", "/api/lessons/{lid}", a.save_lesson), ("DELETE", "/api/lessons/{lid}", a.delete_lesson),
-        ("POST", "/api/schedule/template", a.schedule_template),
+        ("POST", "/api/schedule/template", a.schedule_template), ("GET", "/api/schedule/template", a.schedule_template),
+        ("POST", "/api/schedule/import", a.schedule_import),
         ("GET", "/api/periods", a.periods), ("POST", "/api/periods", a.add_period),
         ("DELETE", "/api/periods/{pid}", a.delete_period),
         ("GET", "/api/day", a.day), ("GET", "/api/live", a.live),
         ("GET", "/api/journal/month", a.journal_month), ("GET", "/api/journal/day", a.journal_day),
         ("GET", "/api/attendance", a.get_attendance), ("POST", "/api/attendance", a.set_attendance),
-        ("POST", "/api/attendance/file", a.attendance_file),
-        ("GET", "/api/stats", a.stats), ("GET", "/api/truancy", a.truancy), ("POST", "/api/export", a.export),
+        ("POST", "/api/attendance/file", a.attendance_file), ("GET", "/api/attendance/file", a.attendance_file),
+        ("GET", "/api/stats", a.stats), ("GET", "/api/truancy", a.truancy),
+        ("POST", "/api/export", a.export), ("GET", "/api/export", a.export),
         ("POST", "/api/checkin/open", a.open_checkin), ("DELETE", "/api/checkin/{cid}", a.close_checkin),
         ("POST", "/api/checkin", a.checkin), ("POST", "/api/poll", a.poll_answer),
         ("POST", "/api/announce", a.announce), ("GET", "/api/announcements", a.announcements),
@@ -1437,8 +1590,10 @@ def build_app(db: DB, bot: Bot, token: str, default_tz: str, bot_username: str) 
         ("GET", "/api/grades/student/{sid}", a.grades_student), ("POST", "/api/grades/month", a.grades_create),
         ("PATCH", "/api/grades/cell", a.grades_cell), ("POST", "/api/grades/subjects", a.grades_subjects),
         ("POST", "/api/grades/fill-missed", a.grades_fill_missed), ("DELETE", "/api/grades/{month}", a.grades_delete),
-        ("POST", "/api/grades/upload", a.grades_upload), ("POST", "/api/grades/export", a.grades_export),
+        ("POST", "/api/grades/upload", a.grades_upload),
+        ("POST", "/api/grades/export", a.grades_export), ("GET", "/api/grades/export", a.grades_export),
         ("GET", "/api/files", a.files), ("POST", "/api/files/upload", a.upload_file),
+        ("GET", "/api/files/{fid}", a.get_file),
         ("POST", "/api/files/{fid}/send", a.send_file), ("DELETE", "/api/files/{fid}", a.delete_file),
     ]
     routes += features.routes(a)

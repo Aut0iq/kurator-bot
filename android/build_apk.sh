@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# Сборка Android-приложения прямо на сервере. Результат — /opt/kurator/dist/kurator.apk,
-# его раздаёт бот по адресу https://<ваш адрес>/app.apk (команда /app).
-#   sudo bash /opt/kurator/android/build_apk.sh
-# Первый раз качает Android SDK (~600 МБ) и собирает 5–10 минут; повторно — 1–2 минуты.
 set -euo pipefail
 
 APP=/opt/kurator
@@ -17,7 +13,6 @@ die()  { printf '\n\033[31m✗ %s\033[0m\n' "$*"; exit 1; }
 URL="$(grep -E '^WEBAPP_URL=' "$APP/.env" | cut -d= -f2- | tr -d ' "')"
 [[ "$URL" == https://* ]] || die "В $APP/.env нет WEBAPP_URL с https — сначала установите бота (deploy/install.sh)"
 
-# ---------- Java 17
 say "Java"
 if ! command -v javac >/dev/null || ! javac -version 2>&1 | grep -qE 'javac (1[7-9]|2[0-9])'; then
   if command -v apt-get >/dev/null; then
@@ -30,7 +25,6 @@ fi
 command -v unzip >/dev/null || { command -v apt-get >/dev/null && apt-get install -y -qq unzip >/dev/null; }
 ok "$(javac -version 2>&1)"
 
-# ---------- Android SDK
 say "Android SDK"
 export ANDROID_HOME=$SDK ANDROID_SDK_ROOT=$SDK
 if [ ! -x "$SDK/cmdline-tools/latest/bin/sdkmanager" ]; then
@@ -46,7 +40,6 @@ yes | "$SDKM" --sdk_root="$SDK" --licenses >/dev/null 2>&1 || true
 "$SDKM" --sdk_root="$SDK" --install "platforms;android-34" "build-tools;34.0.0" >/dev/null
 ok "SDK готов ($SDK)"
 
-# ---------- память: Gradle нужно ~1.5 ГБ
 MEM_MB=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
 SWAP_MB=$(awk '/SwapTotal/ {print int($2/1024)}' /proc/meminfo)
 if [ $((MEM_MB + SWAP_MB)) -lt 2600 ] && [ ! -f /swapfile-kurator ]; then
@@ -57,7 +50,6 @@ if [ $((MEM_MB + SWAP_MB)) -lt 2600 ] && [ ! -f /swapfile-kurator ]; then
   ok "подкачка включена"
 fi
 
-# ---------- ключ подписи (один на все версии — иначе обновление не встанет поверх)
 say "Ключ подписи"
 mkdir -p "$KS_DIR" && chmod 700 "$KS_DIR"
 if [ ! -f "$KS_DIR/kurator.jks" ] && [ -f "$APP/android/keystore/kurator.jks" ]; then
@@ -75,11 +67,10 @@ else
 fi
 PASS="$(cat "$KS_DIR/pass")"
 
-# ---------- сборка
 say "Собираю приложение для $URL"
 cd "$APP/android"
 chmod +x gradlew
-VCODE=$(( $(date +%s) / 60 - 29000000 ))          # растёт с каждой сборкой
+VCODE=$(( $(date +%s) / 60 - 29000000 ))
 VNAME="1.$(date +%y%m%d.%H%M)"
 ./gradlew --no-daemon -q assembleRelease \
   -PserverUrl="$URL" -PversionCode="$VCODE" -PversionName="$VNAME" \
@@ -88,7 +79,6 @@ APK="$APP/android/app/build/outputs/apk/release/app-release.apk"
 [ -f "$APK" ] || die "Сборка не создала APK — смотрите сообщения выше"
 mkdir -p "$APP/dist"
 cp "$APK" "$APP/dist/kurator.apk"
-# сведения о версии: бот по ним предложит обновиться, а старые версии попросит обновить (min_code)
 NOTES="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1])).get("notes", []), ensure_ascii=False))' "$APP/android/kurator.json" 2>/dev/null || echo '[]')"
 cat > "$APP/dist/kurator.json" <<JSON
 {"version_code": $VCODE, "version_name": "$VNAME", "min_code": ${MIN_CODE:-$VCODE}, "notes": $NOTES}

@@ -13,7 +13,6 @@ import time
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-# Идентификаторы вне диапазона Telegram — бот никогда не сможет им ничего отправить
 DEMO_HEAD = -9_000_000_000_001
 DEMO_STUDENT = -9_000_000_000_002
 _BASE = -9_000_000_000_100
@@ -36,14 +35,14 @@ def demo_gid(db) -> int | None:
 STUDENTS = ["Алексеев Артём", "Белова Анна", "Васильев Дмитрий", "Громова Ксения", "Денисов Максим", "Егорова Софья",
             "Жуков Никита", "Зайцева Полина", "Ильин Кирилл", "Королёва Дарья", "Лебедев Иван", "Морозова Алиса",
             "Новиков Егор", "Орлова Виктория"]
-SUBJECTS = [  # предмет, преподаватель, тип, аудитория
+SUBJECTS = [
     ("Математика", "Соколова Т. В.", "Лекция", "305"), ("Программирование", "Кузнецов А. И.", "Лаб", "214"),
     ("Базы данных", "Петрова Н. С.", "Сем", "214"), ("Английский язык", "Смит Э. Р.", "Сем", "118"),
     ("История", "Волков С. П.", "Лекция", "402"), ("Физкультура", "Орлов Д. Н.", "Сем", "Спортзал"),
     ("Компьютерные сети", "Фёдоров И. А.", "Лаб", "210"),
 ]
 SLOTS = [("08:30", "10:00"), ("10:10", "11:40"), ("11:50", "13:20"), ("13:40", "15:10")]
-WEEK = {  # день недели → [(индекс предмета, слот, чётность 0/1/2)]
+WEEK = {
     0: [(0, 0, 0), (1, 1, 0), (3, 2, 0)],
     1: [(4, 0, 0), (2, 1, 0), (1, 2, 1), (6, 2, 2)],
     2: [(0, 0, 0), (5, 1, 0), (2, 2, 0), (3, 3, 2)],
@@ -90,7 +89,6 @@ def _build(db, today: date) -> int:
     gid = g["id"]
     db.x("UPDATE groups SET semester_start=?, semester_end=? WHERE id=?", (f"{year}-09-01", f"{year}-12-28", gid))
 
-    # студенты и участники
     db.add_students(gid, STUDENTS)
     studs = db.students(gid)
     now = int(time.time())
@@ -98,7 +96,7 @@ def _build(db, today: date) -> int:
     db.x("INSERT INTO members(tg_id, group_id, role, full_name, username) VALUES (?,?,?,?,?)",
          (_BASE - 1, gid, "curator", "Иванова Елена Петровна", None))
     for i, s in enumerate(studs):
-        if i >= 11:                                   # трое ещё не подключились к боту
+        if i >= 11:
             continue
         tid = DEMO_STUDENT if i == 0 else _BASE - 100 - i
         db.x("UPDATE students SET tg_id=? WHERE id=?", (tid, s["id"]))
@@ -110,7 +108,6 @@ def _build(db, today: date) -> int:
     if studs:
         db.x("UPDATE students SET record_no=?, email=? WHERE id=?", ("ИС-21-001", "student@example.com", studs[0]["id"]))
 
-    # кто в сети: часть «сейчас», часть сегодня/вчера
     for tid, ago in [(_BASE - 1, 40), (_BASE - 101, 20), (_BASE - 102, 70), (_BASE - 103, 3600 * 2),
                      (_BASE - 104, 3600 * 5), (_BASE - 105, 86400 + 3600), (_BASE - 106, 86400 * 3), (_BASE - 107, 600)]:
         db.x("UPDATE members SET last_seen=?, last_via=? WHERE tg_id=?", (now - ago, rnd.choice(["tg", "app", "bot"]), tid))
@@ -120,7 +117,6 @@ def _build(db, today: date) -> int:
             db.x("INSERT OR REPLACE INTO presence(tg_id, day, first_at, last_at) VALUES (?,?,?,?)",
                  (tid, day(d), t1, min(now - ago if k == 0 else t1 + rnd.randint(1800, 25000), t1 + 30000)))
 
-    # расписание
     lesson_ids = {}
     for wd, items in WEEK.items():
         for si, slot, parity in items:
@@ -130,13 +126,12 @@ def _build(db, today: date) -> int:
                                        "note": "Принести ноутбук" if subj == "Программирование" and wd == 0 else None})
             lesson_ids[(wd, slot, parity)] = lid
 
-    # журнал за 3 недели (до текущего времени)
     from logic import lessons_for_date
     g = db.group(gid)
     lessons = db.lessons(gid)
     hm = datetime.now(ZoneInfo(TZ)).strftime("%H:%M")
     weights = [("P", 80), ("L", 7), ("A", 8), ("E", 5)]
-    lazy = {studs[5]["id"], studs[9]["id"]} if len(studs) > 9 else set()      # двое прогуливают чаще
+    lazy = {studs[5]["id"], studs[9]["id"]} if len(studs) > 9 else set()
     for back in range(21, -1, -1):
         d = today - timedelta(days=back)
         for l in lessons_for_date(lessons, g, d, []):
@@ -148,7 +143,6 @@ def _build(db, today: date) -> int:
                 marks[s["id"]] = rnd.choices([k for k, _ in w], [v for _, v in w])[0]
             db.set_marks(l["id"], d.isoformat(), marks, DEMO_HEAD, source=rnd.choice(["poll", "manual"]))
 
-    # оценки за прошлый и текущий месяц
     subj_list = [{"name": s[0], "teacher": s[1]} for s in SUBJECTS[:6]]
     prev = (today.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
     for month in (prev, today.strftime("%Y-%m")):
@@ -164,7 +158,6 @@ def _build(db, today: date) -> int:
             missed = rnd.choice([0, 0, 2, 4, 6, 8]) + (10 if s["id"] in lazy else 0)
             db.save_grade_row(mid, s["id"], grades, missed, missed // 2 if missed else 0, None)
 
-    # объявления, каникулы, отменённая пара
     db.add_announcement(gid, DEMO_HEAD, "Собрание группы", "В четверг после 3-й пары в 305 аудитории. Явка обязательна!", True)
     db.add_announcement(gid, DEMO_HEAD, None, "Справки за прошлую неделю нужно сдать до пятницы.", False)
     db.add_period(gid, "holiday", "Зимние каникулы", f"{year}-12-29", f"{year + 1}-01-11")

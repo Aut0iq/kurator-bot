@@ -28,7 +28,8 @@ def render(name: str, site: str, bot: str) -> str:
         contact_html = (f'<a href="mailto:{e(contact)}">{e(contact)}</a>' if "@" in contact and " " not in contact and not contact.startswith("@")
                         else e(contact))
     else:
-        contact_html = f'сообщение в Telegram-боте <a href="https://t.me/{e(bot)}">@{e(bot)}</a>'
+        contact_html = (f'сообщение в Telegram-боте <a href="https://t.me/{e(bot)}">@{e(bot)}</a>' if bot
+                        else f'обратная связь на сайте <a href="{e(site)}">{e(site)}</a>')
     values = {
         "STYLE": (DIR / "_style.css").read_text(encoding="utf-8"),
         "OPERATOR": e(operator),

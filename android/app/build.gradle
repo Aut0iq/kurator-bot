@@ -2,7 +2,7 @@ plugins {
     id 'com.android.application'
 }
 
-// Адрес сервера и подпись передаёт скрипт сборки: ./gradlew assembleRelease -PserverUrl=https://...
+
 def serverUrl = (project.findProperty('serverUrl') ?: '').toString()
 def vCode = (project.findProperty('versionCode') ?: '1').toString().toInteger()
 def vName = (project.findProperty('versionName') ?: '1.0').toString()

@@ -6,7 +6,7 @@ import android.os.Build;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 
-/** Запоминает ошибку, из-за которой приложение закрылось, — при следующем запуске она уходит на сервер («Мониторинг»). */
+
 final class CrashLog {
     private CrashLog() {}
 
@@ -42,7 +42,7 @@ final class CrashLog {
         @Override
         public void uncaughtException(Thread th, Throwable e) {
             save(app, e);
-            // ошибка в фоновой проверке уведомлений не должна закрывать приложение
+
             if (th != android.os.Looper.getMainLooper().getThread()) return;
             if (prev != null) prev.uncaughtException(th, e);
         }

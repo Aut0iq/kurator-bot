@@ -1,20 +1,18 @@
 @echo off
 chcp 65001 >nul
-rem Загрузка бота на свой Linux-сервер (VDS) и установка / обновление одной командой.
-rem Нужен Windows 10/11 (в нём уже есть ssh, scp и tar).
 cd /d "%~dp0.."
 echo.
 echo === Куратор +: загрузка на сервер ===
 echo.
 set IP=78.17.209.84
-set /p IP=IP-адрес сервера [78.17.209.84]: 
+set /p IP=IP-адрес сервера [78.17.209.84]:
 set SUSER=root
-set /p SUSER=Пользователь SSH [root]: 
+set /p SUSER=Пользователь SSH [root]:
 set DOMAIN=kyratorvsk.ru
-set /p DOMAIN=Домен [kyratorvsk.ru] (впишите - чтобы без домена, bot.%IP%.sslip.io): 
+set /p DOMAIN=Домен [kyratorvsk.ru] (впишите - чтобы без домена, bot.%IP%.sslip.io):
 if "%DOMAIN%"=="-" set DOMAIN=
 set APK=n
-set /p APK=Собрать приложение для Android на сервере? (y/n) [n]: 
+set /p APK=Собрать приложение для Android на сервере? (y/n) [n]:
 set "BUILD="
 if /i "%APK%"=="y" set "BUILD= && sudo bash /opt/kurator/android/build_apk.sh"
 echo.

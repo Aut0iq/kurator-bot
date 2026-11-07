@@ -8,7 +8,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.drawable.Icon;
 
-/** Будильник опроса: показывает «Будешь на паре?» с тремя кнопками прямо в уведомлении. */
+
 public class PollAlarm extends BroadcastReceiver {
     static final String[][] ANSWERS = {{"P", "✅ Буду"}, {"L", "⏰ Опоздаю"}, {"A", "❌ Не смогу"}};
 
@@ -21,7 +21,7 @@ public class PollAlarm extends BroadcastReceiver {
         if (!Push.enabled(c) || !Push.canNotify(c)) return;
         long lid = in.getLongExtra("lesson_id", 0), close = in.getLongExtra("close", 0) * 1000L;
         String date = in.getStringExtra("date");
-        if (close > 0 && close < System.currentTimeMillis()) return;          // опрос уже закрыт
+        if (close > 0 && close < System.currentTimeMillis()) return;
         show(c, lid, date, in.getStringExtra("title"), in.getStringExtra("body"), close);
         Push.markShown(c, lid + ":" + date);
     }

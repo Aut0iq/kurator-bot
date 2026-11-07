@@ -28,11 +28,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
 import java.util.Set;
 
-/**
- * Уведомления без Google-сервисов (FCM): раз в 15 минут приложение само забирает с сервера ленту
- * (/api/push/feed) — ближайшие опросы «Будешь на паре?» и новые события (объявления, переносы, задания).
- * Опрос показывается будильником AlarmManager точно в момент рассылки — с кнопками «Буду / Опоздаю / Не смогу».
- */
+
 public final class Push {
     static final String PREFS = "kurator";
     static final String CH_POLLS = "polls";
@@ -62,7 +58,7 @@ public final class Push {
         return prefs(c).getBoolean("push_on", false);
     }
 
-    // ---------- каналы
+
     static void channels(Context c) {
         NotificationManager nm = c.getSystemService(NotificationManager.class);
         if (nm == null) return;
@@ -80,7 +76,7 @@ public final class Push {
         return Build.VERSION.SDK_INT < 33 || c.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
     }
 
-    // ---------- периодическая проверка
+
     static void schedule(Context c) {
         try { scheduleJob(c); } catch (Throwable t) { CrashLog.save(c, t); }
     }
@@ -88,7 +84,7 @@ public final class Push {
     private static void scheduleJob(Context c) {
         JobScheduler js = c.getSystemService(JobScheduler.class);
         if (js == null) return;
-        for (JobInfo j : js.getAllPendingJobs()) if (j.getId() == JOB_ID) return;     // уже запланировано
+        for (JobInfo j : js.getAllPendingJobs()) if (j.getId() == JOB_ID) return;
         JobInfo job = new JobInfo.Builder(JOB_ID, new ComponentName(c, FeedJob.class))
                 .setPeriodic(15 * 60 * 1000L)
                 .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
@@ -105,7 +101,7 @@ public final class Push {
         } catch (Throwable t) { CrashLog.save(c, t); }
     }
 
-    /** Включить / выключить (вызывает веб-приложение после переключателя в «Ещё» и при каждом запуске). */
+
     static void setEnabled(Context c, boolean on, String server) {
         SharedPreferences.Editor e = prefs(c).edit().putBoolean("push_on", on);
         if (server != null && !server.isEmpty()) e.putString("push_server", server);
@@ -120,7 +116,7 @@ public final class Push {
         }
     }
 
-    // ---------- HTTP
+
     static JSONObject http(Context c, String method, String path, String body) throws Exception {
         String srv = server(c), tok = token(c);
         if (srv.isEmpty() || tok.isEmpty()) throw new IllegalStateException("not logged in");
@@ -162,8 +158,8 @@ public final class Push {
         } catch (Exception e) { return 0; }
     }
 
-    // ---------- синхронизация
-    /** Никогда не бросает исключений: ошибка уведомлений не должна закрывать приложение. */
+
+
     static synchronized void sync(Context c) {
         try { doSync(c); } catch (Throwable t) { CrashLog.save(c, t); }
     }
@@ -176,13 +172,13 @@ public final class Push {
         try {
             r = http(c, "GET", "/api/push/feed" + (since >= 0 ? "?since=" + since : ""), null);
         } catch (Exception e) {
-            return;                                   // нет сети — попробуем в следующий раз (будильники уже стоят)
+            return;
         }
         int st = r.optInt("_status");
         if (st == 401 || st == 403 || !r.optBoolean("push", false)) { cancelAlarms(c); return; }
         if (st != 200) return;
         channels(c);
-        // новые события (при первой синхронизации только запоминаем, где остановились)
+
         JSONArray ev = r.optJSONArray("events");
         if (since >= 0 && ev != null && canNotify(c)) {
             for (int i = 0; i < ev.length(); i++) {
@@ -224,7 +220,7 @@ public final class Push {
         nm.notify(id, n);
     }
 
-    // ---------- опросы: будильник на момент рассылки
+
     static int pollId(long lessonId, String date) {
         return ("poll:" + lessonId + ":" + date).hashCode() & 0x3fffffff;
     }
@@ -246,7 +242,7 @@ public final class Push {
         AlarmManager am = c.getSystemService(AlarmManager.class);
         NotificationManager nm = c.getSystemService(NotificationManager.class);
         if (am == null) return;
-        long skew = System.currentTimeMillis() / 1000 - serverNow;          // разница часов телефона и сервера
+        long skew = System.currentTimeMillis() / 1000 - serverNow;
         Set<String> keys = new HashSet<>();
         Set<String> shown = prefs(c).getStringSet("polls_shown", new HashSet<>());
         for (int i = 0; i < polls.length(); i++) {
@@ -254,18 +250,18 @@ public final class Push {
             if (poll == null) continue;
             String key = poll.optLong("lesson_id") + ":" + poll.optString("date");
             if (!poll.isNull("answered") && !poll.optString("answered").isEmpty()) {
-                if (nm != null) nm.cancel(pollId(poll.optLong("lesson_id"), poll.optString("date")));     // уже ответил (например, в Telegram)
+                if (nm != null) nm.cancel(pollId(poll.optLong("lesson_id"), poll.optString("date")));
                 continue;
             }
-            if (shown.contains(key)) continue;                           // уже показывали — не дублируем
-            long at = (poll.optLong("at") + skew) * 1000L;               // время рассылки бота
+            if (shown.contains(key)) continue;
+            long at = (poll.optLong("at") + skew) * 1000L;
             long close = (poll.optLong("close") + skew) * 1000L;
             long now = System.currentTimeMillis();
             if (close <= now + 30000) continue;
             if (at < now) at = now + 1000;
             PendingIntent pi = alarmIntent(c, poll, PendingIntent.FLAG_UPDATE_CURRENT);
-            // обычный будильник: не нужно разрешение на «точные будильники», которое настораживает Play Защиту.
-            // Ставим на минуту раньше рассылки — Android может немного сдвинуть его, а ответ сервер принимает и чуть заранее
+
+
             am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, Math.max(now + 1000, at - 60000), pi);
             keys.add(polls.optJSONObject(i).toString());
         }

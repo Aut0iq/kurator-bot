@@ -25,7 +25,6 @@ ROOT = Path(__file__).resolve().parent.parent
 STARTED = time.time()
 log = logging.getLogger(__name__)
 
-# ---------- последние ошибки из логов бота
 ERRORS: collections.deque = collections.deque(maxlen=30)
 
 
@@ -40,7 +39,7 @@ class ErrorTap(logging.Handler):
                 e = record.exc_info[1]
                 msg += f" — {type(e).__name__}: {str(e)[:200]}"
             ERRORS.append({"at": int(record.created), "where": record.name, "text": msg})
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
 
 
@@ -48,7 +47,6 @@ def install_error_tap() -> None:
     logging.getLogger().addHandler(ErrorTap())
 
 
-# ---------- системные показатели (Linux; на Windows часть полей будет пустой)
 def _read(path: str) -> str:
     try:
         return Path(path).read_text()
@@ -146,7 +144,6 @@ def db_info(db, db_path: str) -> dict:
             "app_sessions": count("app_sessions"), "app_active_day": active}
 
 
-# ---------- проверки сети (кэш 60 с)
 _net_cache: dict = {}
 
 
@@ -162,7 +159,7 @@ async def site_check(url: str) -> dict:
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=8)) as s:
             async with s.get(url + "/api/app-info", headers={"ngrok-skip-browser-warning": "1"}) as r:
                 res.update(ok=r.status == 200, status=r.status)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         res.update(ok=False, error=type(e).__name__ + (f": {e}" if str(e) else ""))
     res["ms"] = round((time.perf_counter() - t0) * 1000)
     _net_cache["site"] = res
@@ -170,6 +167,8 @@ async def site_check(url: str) -> dict:
 
 
 async def telegram_check(bot) -> dict:
+    if bot is None:
+        return {"ok": None, "checked": int(time.time())}
     hit = _net_cache.get("tg")
     if hit and time.time() - hit["checked"] < 60:
         return hit
@@ -178,7 +177,7 @@ async def telegram_check(bot) -> dict:
     try:
         await asyncio.wait_for(bot.get_me(), 8)
         res["ok"] = True
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         res.update(ok=False, error=type(e).__name__)
     res["ms"] = round((time.perf_counter() - t0) * 1000)
     _net_cache["tg"] = res
@@ -196,14 +195,13 @@ def _usage(db) -> dict:
     import features
     try:
         v = features.usage(db)
-    except Exception:  # noqa: BLE001
+    except Exception:
         logging.getLogger(__name__).exception("usage")
         v = None
     _usage_cache["v"] = (time.time(), v)
     return v
 
 
-# ---------- общий снимок
 async def snapshot(db, bot, db_path: str) -> dict:
     url = os.getenv("WEBAPP_URL", "").strip().rstrip("/")
     try:
@@ -261,7 +259,6 @@ def problems(s: dict) -> list[dict]:
     return p
 
 
-# ---------- форматирование
 def fmt_bytes(n: int | None) -> str:
     if n is None:
         return "—"
@@ -292,7 +289,7 @@ def text_report(s: dict) -> str:
         f"Сервер работает: {fmt_dur(s['host']['uptime'])} · бот: {fmt_dur(s['proc']['uptime'])} ({fmt_bytes(s['proc'].get('rss'))})",
         "",
         f"Mini App: {'✅' if s['site'].get('ok') else '❌' if s['site'].get('ok') is False else '—'} {s['site'].get('ms', '')} мс · "
-        f"Telegram: {'✅' if s['telegram'].get('ok') else '❌'} {s['telegram'].get('ms', '')} мс",
+        f"Telegram: {'✅' if s['telegram'].get('ok') else '❌' if s['telegram'].get('ok') is False else '—'} {s['telegram'].get('ms', '')} мс",
         f"База: {fmt_bytes(s['db']['size'])} · групп {s['db']['groups']} · участников {s['db']['members']} · студентов {s['db']['students']}",
     ]
     b = s["backups"]
@@ -302,11 +299,10 @@ def text_report(s: dict) -> str:
     return "\n".join(lines)
 
 
-# ---------- фоновое наблюдение
 async def watch(db, bot, db_path: str) -> None:
     from services import safe_send
-    sent: dict[str, float] = {}           # key -> когда предупреждали
-    await asyncio.sleep(90)               # даём боту и сайту подняться после запуска
+    sent: dict[str, float] = {}
+    await asyncio.sleep(90)
     while True:
         try:
             s = await snapshot(db, bot, db_path)
@@ -319,13 +315,13 @@ async def watch(db, bot, db_path: str) -> None:
                     icon = "🔴" if p["level"] == "crit" else "🟡"
                     for uid in SUPER_IDS:
                         await safe_send(bot, uid, f"{icon} <b>Сервер:</b> {html.escape(p['text'])}\n\nПодробнее: /server")
-            for k in [k for k in sent if k not in keys]:      # проблема ушла
+            for k in [k for k in sent if k not in keys]:
                 del sent[k]
                 for uid in SUPER_IDS:
                     await safe_send(bot, uid, "✅ <b>Сервер:</b> проблема решилась — " + {
                         "disk": "место на диске", "mem": "память", "load": "нагрузка", "site": "Mini App снова открывается",
                         "tg": "связь с Telegram", "backup": "резервная копия", "errors": "ошибки в логах"}.get(
                         k, "служба " + k[4:] + " снова работает" if k.startswith("svc:") else k))
-        except Exception:  # noqa: BLE001
+        except Exception:
             log.warning("monitor tick failed", exc_info=True)
         await asyncio.sleep(60)
