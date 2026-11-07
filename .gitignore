@@ -1,0 +1,17 @@
+.env
+data/
+.venv/
+__pycache__/
+
+# Секреты и ключ подписи — не публиковать
+android/keystore/*.jks
+android/keystore/pass
+*.keystore
+
+# Сборки и архивы
+*.apk
+android/build/
+android/app/build/
+android/.gradle/
+Claude outputs/
+*.zip

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Академическая шапочка (108×108, безопасная зона — центральные 66) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#FFFFFF" android:pathData="M54,33 L83,45.5 L54,58 L25,45.5 Z" />
+    <path android:fillColor="#FFFFFF" android:fillAlpha="0.85"
+        android:pathData="M37,51.5 L37,63 C37,68.5 45,73 54,73 C63,73 71,68.5 71,63 L71,51.5 L54,59 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M79.2,46.5 L81.2,46.5 L81.2,62 L79.2,62 Z" />
+    <path android:fillColor="#FFD54F" android:pathData="M80.2,61 m-3.2,0 a3.2,3.2 0 1,0 6.4,0 a3.2,3.2 0 1,0 -6.4,0" />
+</vector>

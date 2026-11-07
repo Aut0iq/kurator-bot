@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; text-align: center;
+         font: 15px/1.45 -apple-system, Roboto, "Segoe UI", sans-serif; background: #f2f3f7; color: #14151a; padding: 24px; box-sizing: border-box; }
+  @media (prefers-color-scheme: dark) { body { background: #0b0c10; color: #f2f3f7; } p { color: #8d93a1 !important; } }
+  .ic { width: 84px; height: 84px; border-radius: 26px; margin: 0 auto 18px; display: grid; place-items: center; font-size: 38px;
+        background: linear-gradient(135deg, #8b5cf6, #6366f1 50%, #3b82f6); box-shadow: 0 12px 30px rgba(99, 102, 241, .35); }
+  h1 { font-size: 22px; margin: 0 0 6px; } p { color: #8b8f9a; margin: 0 0 22px; }
+  button { border: 0; border-radius: 14px; padding: 14px 22px; font: inherit; font-weight: 650; color: #fff; width: 100%; max-width: 320px;
+           background: linear-gradient(135deg, #8b5cf6, #6366f1 50%, #3b82f6); }
+  .link { background: none; color: #8b7dff; margin-top: 10px; font-weight: 500; }
+</style></head>
+<body><div>
+  <div class="ic">📡</div>
+  <h1>Нет связи с сервером</h1>
+  <p>Проверьте интернет. Если интернет есть — сервер бота перезапускается или временно недоступен.<br>Подключусь сам, как только он заработает<span id="t"></span></p>
+  <button onclick="KuratorApp.reload()">Повторить</button><br>
+  <button class="link" onclick="stop = true; KuratorApp.resetServer()">Изменить адрес сервера</button>
+</div>
+<script>
+  // автоматическое переподключение: пробуем каждые 5 секунд
+  var stop = false, left = 5, el = document.getElementById("t");
+  setInterval(function () {
+    if (stop) return;
+    left--; el.textContent = left > 0 ? " · " + left + " с" : " · подключаюсь…";
+    if (left <= 0) { left = 5; KuratorApp.reload(); }
+  }, 1000);
+</script></body></html>

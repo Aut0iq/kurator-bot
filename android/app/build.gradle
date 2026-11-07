@@ -1,0 +1,51 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Адрес сервера и подпись передаёт скрипт сборки: ./gradlew assembleRelease -PserverUrl=https://...
+def serverUrl = (project.findProperty('serverUrl') ?: '').toString()
+def vCode = (project.findProperty('versionCode') ?: '1').toString().toInteger()
+def vName = (project.findProperty('versionName') ?: '1.0').toString()
+
+android {
+    namespace 'ru.kurator.app'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'ru.kurator.app'
+        minSdk 26
+        targetSdk 34
+        versionCode vCode
+        versionName vName
+        resValue 'string', 'server_url', serverUrl
+        resValue 'string', 'server_alt', (project.findProperty('serverAlt') ?: '').toString()
+    }
+
+    signingConfigs {
+        release {
+            if (project.hasProperty('keystore')) {
+                storeFile file(project.property('keystore'))
+                storePassword project.property('storePass')
+                keyAlias 'kurator'
+                keyPassword project.property('storePass')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig project.hasProperty('keystore') ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+}

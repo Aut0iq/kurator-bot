@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Куратор +</title>
+<link rel="preload" as="image" href="/static/logo.webp">
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<link rel="stylesheet" href="/static/app.css?v=30">
+<link rel="preload" as="script" href="/static/app.js?v=30">
+<link rel="preload" as="script" href="/static/views.js?v=30">
+<link rel="preload" as="script" href="/static/features.js?v=30">
+</head>
+<body>
+<div id="welcome"><div class="wl-glow"></div><div class="wl-logo"><img src="/static/logo.webp" alt="" width="128" height="128"></div><div class="wl-name">Куратор <b>+</b></div><div class="wl-hello">&nbsp;</div><div class="wl-dots"><i></i><i></i><i></i></div></div>
+<div id="app"></div>
+<nav id="tabs" class="tabs hidden"></nav>
+<div id="toast" class="toast"></div>
+<canvas id="confetti"></canvas>
+<script>
+/* Скрипт Telegram нужен только внутри Telegram: в приложении и браузере его не ждём (telegram.org бывает медленным — был бы тёмный экран) */
+(function () {
+  var v = "30", inTg = /tgWebApp/.test(location.hash + location.search) || !!window.TelegramWebviewProxy || window.parent !== window;
+  try { inTg = inTg || !!sessionStorage.getItem("__telegram__initParams"); } catch (e) {}
+  if (/KuratorApp\//.test(navigator.userAgent)) inTg = false;
+  var list = (inTg ? ["https://telegram.org/js/telegram-web-app.js"] : []).concat(["app", "views", "features"].map(function (n) { return "/static/" + n + ".js?v=" + v; }));
+  list.forEach(function (src) { var s = document.createElement("script"); s.src = src; s.async = false; document.body.appendChild(s); });
+})();
+</script>
+</body>
+</html>
